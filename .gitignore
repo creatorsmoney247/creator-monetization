@@ -1,0 +1,21 @@
+# Python virtual environments
+venv/
+.venv/
+backend/venv/
+backend/.venv/
+bot/venv/
+bot/.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment files
+.env
+
+# Databases
+*.db
+
+# OS
+.DS_Store
+Thumbs.db
