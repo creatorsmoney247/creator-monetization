@@ -52,22 +52,18 @@ BOT_DB_PATH = get_required_env("BOT_DB_PATH")
 # -------------------------------------------------
 # DATABASE
 # -------------------------------------------------
+BOT_DB_PATH = get_required_env("BOT_DB_PATH")
 DB_PATH = Path(BOT_DB_PATH)
-
-# Ensure parent directory exists (except Render disk mount)
-try:
-    if str(DB_PATH.parent) != "/data":
-        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-except PermissionError:
-    # Render manages /data permissions
-    pass
-
 
 def get_db():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
 
 def init_db():
-    conn = get_db()
+    # Only create parent dirs if not Render disk
+    if not str(DB_PATH).startswith("/data/"):
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     cur = conn.cursor()
 
     cur.execute("""
@@ -90,7 +86,6 @@ def init_db():
 
     conn.commit()
     conn.close()
-    logger.info("Database initialized at %s", DB_PATH)
 
 # -------------------------------------------------
 # APP
