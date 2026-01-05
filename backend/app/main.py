@@ -1,5 +1,3 @@
-# backend/app/main.py
-
 # -------------------------------------------------
 # PATH SETUP (PROJECT ROOT)
 # -------------------------------------------------
@@ -52,16 +50,22 @@ BOT_DB_PATH = get_required_env("BOT_DB_PATH")
 # -------------------------------------------------
 # DATABASE
 # -------------------------------------------------
-BOT_DB_PATH = get_required_env("BOT_DB_PATH")
 DB_PATH = Path(BOT_DB_PATH)
 
 def get_db():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
 
 def init_db():
-    # Only create parent dirs if not Render disk
-    if not str(DB_PATH).startswith("/data/"):
-        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    """
+    Render free plan:
+    - Only /data is writable if disk is attached
+    - Otherwise stay inside project folder
+    """
+    try:
+        if not DB_PATH.exists():
+            DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        logger.warning("⚠️ DB directory not writable, continuing...")
 
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     cur = conn.cursor()
@@ -84,15 +88,33 @@ def init_db():
         )
     """)
 
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS pro_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id TEXT NOT NULL,
+            email TEXT NOT NULL,
+            full_name TEXT NOT NULL,
+            brand_name TEXT,
+            phone TEXT,
+            requested_at TEXT,
+            delivery_status TEXT DEFAULT 'pending'
+        )
+    """)
+
     conn.commit()
     conn.close()
 
 # -------------------------------------------------
 # APP
 # -------------------------------------------------
-app = FastAPI(title="Creator Monetization Backend")
+app = FastAPI(
+    title="Creator Monetization Backend",
+    version="1.0.0"
+)
+
 app.include_router(telegram_router)
 
+# Initialize DB once
 init_db()
 
 # -------------------------------------------------
@@ -103,7 +125,7 @@ def health():
     return {"status": "ok"}
 
 # -------------------------------------------------
-# PRICING
+# PRICING (API)
 # -------------------------------------------------
 @app.post("/pricing/calculate")
 def calculate_pricing(payload: dict):
@@ -151,6 +173,7 @@ def paystack_init(payload: dict):
     )
 
     if not response.ok:
+        logger.error(response.text)
         raise HTTPException(status_code=400, detail="Paystack init failed")
 
     conn = get_db()
@@ -182,6 +205,7 @@ async def paystack_webhook(request: Request):
         raise HTTPException(status_code=400, detail="Invalid signature")
 
     event = json.loads(raw)
+
     if event.get("event") != "charge.success":
         return {"status": "ignored"}
 
@@ -192,12 +216,18 @@ async def paystack_webhook(request: Request):
     conn = get_db()
     cur = conn.cursor()
 
-    cur.execute("UPDATE payments SET status='success' WHERE reference=?", (reference,))
+    cur.execute(
+        "UPDATE payments SET status='success' WHERE reference=?",
+        (reference,)
+    )
+
     cur.execute("""
         INSERT INTO creators (telegram_id, is_pro, pro_activated_at)
         VALUES (?, 1, CURRENT_TIMESTAMP)
         ON CONFLICT(telegram_id)
-        DO UPDATE SET is_pro=1, pro_activated_at=CURRENT_TIMESTAMP
+        DO UPDATE SET
+            is_pro=1,
+            pro_activated_at=CURRENT_TIMESTAMP
     """, (telegram_id,))
 
     conn.commit()
