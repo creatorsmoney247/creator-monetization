@@ -1,31 +1,17 @@
 # -------------------------------------------------
-# PATH SETUP (PROJECT ROOT)
-# -------------------------------------------------
-import sys
-from pathlib import Path
-
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-# -------------------------------------------------
 # STANDARD IMPORTS
 # -------------------------------------------------
 import os
 import json
 import hmac
 import hashlib
-import sqlite3
 import logging
-import requests
 import uuid
-from fastapi import FastAPI, Request, HTTPException
-from dotenv import load_dotenv
+from typing import Dict
 
-# -------------------------------------------------
-# ROUTES (ABSOLUTE, PRODUCTION-SAFE)
-# -------------------------------------------------
-from backend.app.routes.telegram_webhook import router as telegram_router
+import requests
+import psycopg2
+from fastapi import FastAPI, Request, HTTPException
 
 # -------------------------------------------------
 # LOGGING
@@ -34,48 +20,35 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("creator-backend")
 
 # -------------------------------------------------
-# ENV
+# ENV HELPERS
 # -------------------------------------------------
-load_dotenv()
-
 def get_required_env(name: str) -> str:
     value = os.getenv(name)
     if not value or not value.strip():
         raise RuntimeError(f"❌ Missing required env var: {name}")
     return value
 
+# -------------------------------------------------
+# REQUIRED ENV VARS (BACKEND ONLY)
+# -------------------------------------------------
+DATABASE_URL = get_required_env("DATABASE_URL")
 PAYSTACK_SECRET_KEY = get_required_env("PAYSTACK_SECRET_KEY")
-BOT_DB_PATH = get_required_env("BOT_DB_PATH")
 
 # -------------------------------------------------
-# DATABASE
+# DATABASE (SUPABASE / POSTGRES)
 # -------------------------------------------------
-DB_PATH = Path(BOT_DB_PATH)
-
 def get_db():
-    return sqlite3.connect(DB_PATH, check_same_thread=False)
+    return psycopg2.connect(DATABASE_URL)
 
 def init_db():
-    """
-    Render free plan:
-    - Only /data is writable if disk is attached
-    - Otherwise stay inside project folder
-    """
-    try:
-        if not DB_PATH.exists():
-            DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    except PermissionError:
-        logger.warning("⚠️ DB directory not writable, continuing...")
-
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = get_db()
     cur = conn.cursor()
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS creators (
             telegram_id TEXT PRIMARY KEY,
-            username TEXT,
             is_pro INTEGER DEFAULT 0,
-            pro_activated_at TEXT
+            pro_activated_at TIMESTAMP
         )
     """)
 
@@ -90,13 +63,13 @@ def init_db():
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS pro_requests (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             telegram_id TEXT NOT NULL,
             email TEXT NOT NULL,
             full_name TEXT NOT NULL,
             brand_name TEXT,
             phone TEXT,
-            requested_at TEXT,
+            requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             delivery_status TEXT DEFAULT 'pending'
         )
     """)
@@ -105,30 +78,28 @@ def init_db():
     conn.close()
 
 # -------------------------------------------------
-# APP
+# FASTAPI APP
 # -------------------------------------------------
 app = FastAPI(
-    title="Creator Monetization Backend",
-    version="1.0.0"
+    title="Creator Monetization API",
+    version="1.0.0",
 )
 
-app.include_router(telegram_router)
-
-# Initialize DB once
+# Initialize DB on startup
 init_db()
 
 # -------------------------------------------------
-# HEALTH
+# HEALTH CHECK
 # -------------------------------------------------
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
 # -------------------------------------------------
-# PRICING (API)
+# PRICING API
 # -------------------------------------------------
 @app.post("/pricing/calculate")
-def calculate_pricing(payload: dict):
+def calculate_pricing(payload: Dict):
     try:
         avg_views = int(payload["avg_views"])
         engagement = float(payload["engagement_rate"])
@@ -147,7 +118,7 @@ def calculate_pricing(payload: dict):
 # PAYSTACK INIT
 # -------------------------------------------------
 @app.post("/paystack/init")
-def paystack_init(payload: dict):
+def paystack_init(payload: Dict):
     try:
         email = payload["email"]
         amount = int(payload["amount"])
@@ -179,7 +150,7 @@ def paystack_init(payload: dict):
     conn = get_db()
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO payments VALUES (?, ?, ?, 'pending')",
+        "INSERT INTO payments VALUES (%s, %s, %s, 'pending')",
         (reference, telegram_id, amount),
     )
     conn.commit()
@@ -198,7 +169,7 @@ async def paystack_webhook(request: Request):
     expected = hmac.new(
         PAYSTACK_SECRET_KEY.encode(),
         raw,
-        hashlib.sha512
+        hashlib.sha512,
     ).hexdigest()
 
     if not hmac.compare_digest(signature or "", expected):
@@ -217,14 +188,14 @@ async def paystack_webhook(request: Request):
     cur = conn.cursor()
 
     cur.execute(
-        "UPDATE payments SET status='success' WHERE reference=?",
-        (reference,)
+        "UPDATE payments SET status='success' WHERE reference=%s",
+        (reference,),
     )
 
     cur.execute("""
         INSERT INTO creators (telegram_id, is_pro, pro_activated_at)
-        VALUES (?, 1, CURRENT_TIMESTAMP)
-        ON CONFLICT(telegram_id)
+        VALUES (%s, 1, CURRENT_TIMESTAMP)
+        ON CONFLICT (telegram_id)
         DO UPDATE SET
             is_pro=1,
             pro_activated_at=CURRENT_TIMESTAMP

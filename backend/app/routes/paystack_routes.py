@@ -1,70 +1,87 @@
-# backend/app/routes/paystack_routes.py
-
-import requests
-import sqlite3
 import os
 import uuid
+import hmac
+import hashlib
+import logging
+from typing import Dict
+
+import requests
+import psycopg2
 from fastapi import APIRouter, HTTPException, Request
-from dotenv import load_dotenv
 
-load_dotenv()
+logger = logging.getLogger("creator-backend.paystack")
 
-router = APIRouter()
+router = APIRouter(prefix="/paystack", tags=["paystack"])
 
-PAYSTACK_SECRET = os.getenv("PAYSTACK_SECRET_KEY")
-CALLBACK_URL = os.getenv("PAYSTACK_CALLBACK_URL")
 
-DB_PATH = "backend/app/bot_users.db"
+# -------------------------------------------------
+# ENV (BACKEND ONLY)
+# -------------------------------------------------
+def get_required_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value or not value.strip():
+        raise RuntimeError(f"❌ Missing required env var: {name}")
+    return value
 
-# -----------------------------
+
+PAYSTACK_SECRET_KEY = get_required_env("PAYSTACK_SECRET_KEY")
+DATABASE_URL = get_required_env("DATABASE_URL")
+
+
+# -------------------------------------------------
+# DB (SUPABASE / POSTGRES)
+# -------------------------------------------------
+def get_db():
+    return psycopg2.connect(DATABASE_URL)
+
+
+# -------------------------------------------------
 # INIT PAYMENT
-# -----------------------------
-@router.post("/paystack/init")
-def init_payment(payload: dict):
-    if not PAYSTACK_SECRET:
-        raise HTTPException(status_code=500, detail="Paystack secret not set")
+# -------------------------------------------------
+@router.post("/init")
+def init_payment(payload: Dict):
+    try:
+        email = payload["email"]
+        amount = int(payload["amount"])
+        telegram_id = str(payload["metadata"]["telegram_id"])
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid payload")
 
     reference = str(uuid.uuid4())
-    telegram_id = payload.get("metadata", {}).get("telegram_id")
-
-    if not telegram_id:
-        raise HTTPException(status_code=400, detail="telegram_id missing")
 
     headers = {
-        "Authorization": f"Bearer {PAYSTACK_SECRET}",
+        "Authorization": f"Bearer {PAYSTACK_SECRET_KEY}",
         "Content-Type": "application/json",
     }
 
     data = {
-        "email": payload["email"],
-        "amount": payload["amount"],
+        "email": email,
+        "amount": amount,
         "reference": reference,
-        "callback_url": CALLBACK_URL,
-        "metadata": {
-            "telegram_id": telegram_id
-        },
+        "metadata": {"telegram_id": telegram_id},
     }
 
     res = requests.post(
         "https://api.paystack.co/transaction/initialize",
         json=data,
         headers=headers,
-        timeout=10,
+        timeout=15,
     )
 
     if not res.ok:
+        logger.error(res.text)
         raise HTTPException(status_code=400, detail="Paystack init failed")
 
     # Save pending payment
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db()
     cur = conn.cursor()
 
     cur.execute(
         """
         INSERT INTO payments (reference, telegram_id, amount, status)
-        VALUES (?, ?, ?, ?)
+        VALUES (%s, %s, %s, 'pending')
         """,
-        (reference, str(telegram_id), payload["amount"], "pending"),
+        (reference, telegram_id, amount),
     )
 
     conn.commit()
@@ -73,11 +90,23 @@ def init_payment(payload: dict):
     return res.json()["data"]
 
 
-# -----------------------------
+# -------------------------------------------------
 # PAYSTACK WEBHOOK
-# -----------------------------
-@router.post("/paystack/webhook")
+# -------------------------------------------------
+@router.post("/webhook")
 async def paystack_webhook(request: Request):
+    raw_body = await request.body()
+    signature = request.headers.get("x-paystack-signature")
+
+    expected = hmac.new(
+        PAYSTACK_SECRET_KEY.encode(),
+        raw_body,
+        hashlib.sha512,
+    ).hexdigest()
+
+    if not hmac.compare_digest(signature or "", expected):
+        raise HTTPException(status_code=400, detail="Invalid Paystack signature")
+
     payload = await request.json()
 
     if payload.get("event") != "charge.success":
@@ -85,28 +114,31 @@ async def paystack_webhook(request: Request):
 
     data = payload.get("data", {})
     reference = data.get("reference")
-    metadata = data.get("metadata", {})
-    telegram_id = metadata.get("telegram_id")
+    telegram_id = str(data.get("metadata", {}).get("telegram_id"))
 
     if not reference or not telegram_id:
         return {"status": "invalid"}
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db()
     cur = conn.cursor()
 
     # Mark payment as successful
     cur.execute(
-        "UPDATE payments SET status = ? WHERE reference = ?",
-        ("success", reference),
+        "UPDATE payments SET status='success' WHERE reference=%s",
+        (reference,),
     )
 
     # 🔓 UNLOCK PRO
-    cur.execute(
-        "UPDATE creators SET is_pro = 1 WHERE telegram_id = ?",
-        (str(telegram_id),),
-    )
+    cur.execute("""
+        INSERT INTO creators (telegram_id, is_pro, pro_activated_at)
+        VALUES (%s, 1, CURRENT_TIMESTAMP)
+        ON CONFLICT (telegram_id)
+        DO UPDATE SET
+            is_pro=1,
+            pro_activated_at=CURRENT_TIMESTAMP
+    """, (telegram_id,))
 
     conn.commit()
     conn.close()
 
-    return {"status": "ok"}
+    return {"status": "upgraded"}
