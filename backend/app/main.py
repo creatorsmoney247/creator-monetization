@@ -29,53 +29,19 @@ def get_required_env(name: str) -> str:
     return value
 
 # -------------------------------------------------
-# REQUIRED ENV VARS (BACKEND ONLY)
+# REQUIRED ENV VARS
 # -------------------------------------------------
 DATABASE_URL = get_required_env("DATABASE_URL")
 PAYSTACK_SECRET_KEY = get_required_env("PAYSTACK_SECRET_KEY")
 
 # -------------------------------------------------
-# DATABASE (SUPABASE / POSTGRES)
+# DATABASE (LAZY CONNECTION — SAFE)
 # -------------------------------------------------
 def get_db():
-    return psycopg2.connect(DATABASE_URL)
-
-def init_db():
-    conn = get_db()
-    cur = conn.cursor()
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS creators (
-            telegram_id TEXT PRIMARY KEY,
-            is_pro INTEGER DEFAULT 0,
-            pro_activated_at TIMESTAMP
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS payments (
-            reference TEXT PRIMARY KEY,
-            telegram_id TEXT NOT NULL,
-            amount INTEGER NOT NULL,
-            status TEXT NOT NULL
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS pro_requests (
-            id SERIAL PRIMARY KEY,
-            telegram_id TEXT NOT NULL,
-            email TEXT NOT NULL,
-            full_name TEXT NOT NULL,
-            brand_name TEXT,
-            phone TEXT,
-            requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            delivery_status TEXT DEFAULT 'pending'
-        )
-    """)
-
-    conn.commit()
-    conn.close()
+    return psycopg2.connect(
+        DATABASE_URL,
+        connect_timeout=5,
+    )
 
 # -------------------------------------------------
 # FASTAPI APP
@@ -85,18 +51,15 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Initialize DB on startup
-init_db()
-
 # -------------------------------------------------
-# HEALTH CHECK
+# HEALTH CHECK (NO DB ACCESS)
 # -------------------------------------------------
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
 # -------------------------------------------------
-# PRICING API
+# PRICING API (NO DB)
 # -------------------------------------------------
 @app.post("/pricing/calculate")
 def calculate_pricing(payload: Dict):
@@ -115,7 +78,7 @@ def calculate_pricing(payload: Dict):
     }
 
 # -------------------------------------------------
-# PAYSTACK INIT
+# PAYSTACK INIT (DB USED HERE — OK)
 # -------------------------------------------------
 @app.post("/paystack/init")
 def paystack_init(payload: Dict):
