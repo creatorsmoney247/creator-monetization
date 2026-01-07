@@ -3,7 +3,7 @@ from telegram.ext import ContextTypes
 from datetime import datetime
 from typing import Dict, Any, Optional
 
-from backend.app.db import get_db
+from app.db import get_db
 
 
 # =================================================
