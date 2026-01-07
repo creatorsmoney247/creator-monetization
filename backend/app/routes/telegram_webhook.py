@@ -33,11 +33,12 @@ telegram_app: Application = (
 # -------------------------------------------------
 # IMPORT BOT HANDLERS
 # -------------------------------------------------
-from backend.bot.handlers.start import start_message
-from backend.bot.handlers.pricing import pricing_calc
-from backend.bot.handlers.deal import deal_script, deal_step_handler
-from backend.bot.handlers.subscribe import subscribe_command, pay_command
-from backend.bot.handlers.status import status
+from bot.handlers.start import start_message
+from bot.handlers.pricing import pricing_calc
+from bot.handlers.deal import deal_script, deal_step_handler
+from bot.handlers.subscribe import subscribe_command, pay_command
+from bot.handlers.status import status
+
 
 # -------------------------------------------------
 # REGISTER COMMAND HANDLERS
