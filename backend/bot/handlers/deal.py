@@ -1,7 +1,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 from app.db import get_db
 
@@ -13,33 +13,27 @@ from app.db import get_db
 def is_pro_user(telegram_id: int) -> bool:
     """
     Returns True if user has PRO access.
-    Safe for Supabase / Postgres / SQLite.
     """
     conn = get_db()
     try:
         cur = conn.cursor()
-
-        # Use generic param style (works across adapters)
         cur.execute(
             "SELECT is_pro FROM creators WHERE telegram_id = %s",
             (str(telegram_id),),
         )
-
         row = cur.fetchone()
-        return bool(row and row[0] == 1)
-
+        return bool(row and row[0])
     finally:
         conn.close()
 
 
 def save_pro_request(data: Dict[str, Any]) -> None:
     """
-    Persists PRO delivery request safely.
+    Persists PRO delivery request.
     """
     conn = get_db()
     try:
         cur = conn.cursor()
-
         cur.execute(
             """
             INSERT INTO pro_requests
@@ -55,9 +49,7 @@ def save_pro_request(data: Dict[str, Any]) -> None:
                 datetime.utcnow(),
             ),
         )
-
         conn.commit()
-
     finally:
         conn.close()
 
@@ -69,16 +61,19 @@ async def deal_script(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     message = update.effective_message
     user = update.effective_user
 
-    if message is None or user is None:
+    if not message or not user:
         return
 
+    # -----------------------------
+    # PRO GATE
+    # -----------------------------
     if not is_pro_user(user.id):
         keyboard = InlineKeyboardMarkup(
             [[InlineKeyboardButton("🚀 Upgrade to PRO", callback_data="upgrade_pro")]]
         )
 
         await message.reply_text(
-            "🔒 **PRO Required**\n\n"
+            "🔒 *PRO Required*\n\n"
             "Brand deal scripts unlock **only after upgrading**.\n\n"
             "Tap below to continue 👇",
             reply_markup=keyboard,
@@ -86,18 +81,23 @@ async def deal_script(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
+    # -----------------------------
+    # INITIALIZE DEAL STATE
+    # -----------------------------
     user_data = context.user_data
     if user_data is None:
-        return
+        return  # satisfies type checker
 
     user_data.clear()
+    user_data["mode"] = "deal"
     user_data["step"] = "email"
 
     await message.reply_text(
-        "📝 **PRO Brand Deal Setup**\n\n"
-        "📧 **Enter your email address:**",
+        "📝 *PRO Brand Deal Setup*\n\n"
+        "📧 *Enter your email address:*",
         parse_mode="Markdown",
     )
+
 
 # =================================================
 # MULTI-STEP DEAL FLOW
@@ -106,19 +106,18 @@ async def deal_step_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     message = update.effective_message
     user = update.effective_user
 
-    if message is None or user is None:
+    if not message or not user:
         return
 
     user_data = context.user_data
     if user_data is None:
-        return
+        return  # satisfies type checker
 
     step = user_data.get("step")
     if not step:
         return
 
     text = message.text.strip() if message.text else ""
-
 
     # ---------- EMAIL ----------
     if step == "email":
@@ -130,7 +129,7 @@ async def deal_step_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         user_data["step"] = "full_name"
 
         await message.reply_text(
-            "👤 **Enter your full name:**",
+            "👤 *Enter your full name:*",
             parse_mode="Markdown",
         )
         return
@@ -145,7 +144,7 @@ async def deal_step_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         user_data["step"] = "brand_name"
 
         await message.reply_text(
-            "🏢 **Enter your creator brand or company name**\n"
+            "🏢 *Enter your creator brand or company name*\n"
             "(or type `skip`):",
             parse_mode="Markdown",
         )
@@ -157,7 +156,7 @@ async def deal_step_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         user_data["step"] = "phone"
 
         await message.reply_text(
-            "📞 **Enter your phone number**\n"
+            "📞 *Enter your phone number*\n"
             "(or type `skip`):",
             parse_mode="Markdown",
         )
@@ -177,12 +176,15 @@ async def deal_step_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             }
         )
 
+        # -----------------------------
+        # CLEAR DEAL STATE
+        # -----------------------------
         user_data.clear()
 
         await message.reply_text(
-            "✅ **Details Received Successfully**\n\n"
-            "📦 Your **PRO Creator Monetization Pack**\n"
-            "will be delivered to your email within **24 hours**.\n\n"
-            "Welcome to **PRO** 💼🚀",
+            "✅ *Details Received Successfully*\n\n"
+            "📦 Your *PRO Creator Monetization Pack*\n"
+            "will be delivered to your email within *24 hours*.\n\n"
+            "Welcome to *PRO* 💼🚀",
             parse_mode="Markdown",
         )

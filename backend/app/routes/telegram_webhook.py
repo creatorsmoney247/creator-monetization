@@ -34,11 +34,10 @@ telegram_app: Application = (
 # IMPORT BOT HANDLERS
 # -------------------------------------------------
 from bot.handlers.start import start_message
-from bot.handlers.pricing import pricing_calc
-from bot.handlers.deal import deal_script, deal_step_handler
+from bot.handlers.deal import deal_script
 from bot.handlers.subscribe import subscribe_command, pay_command
 from bot.handlers.status import status
-
+from bot.handlers.text_router import text_router   # 🔑 SINGLE TEXT ENTRY POINT
 
 # -------------------------------------------------
 # REGISTER COMMAND HANDLERS
@@ -50,14 +49,10 @@ telegram_app.add_handler(CommandHandler("deal", deal_script))
 telegram_app.add_handler(CommandHandler("status", status))
 
 # -------------------------------------------------
-# REGISTER TEXT HANDLERS
-# Order matters: conversational flow first
+# REGISTER TEXT HANDLER (ONE ONLY)
 # -------------------------------------------------
 telegram_app.add_handler(
-    MessageHandler(filters.TEXT & ~filters.COMMAND, deal_step_handler)
-)
-telegram_app.add_handler(
-    MessageHandler(filters.TEXT & ~filters.COMMAND, pricing_calc)
+    MessageHandler(filters.TEXT & ~filters.COMMAND, text_router)
 )
 
 # -------------------------------------------------
@@ -70,7 +65,7 @@ router = APIRouter(prefix="/telegram")
 async def telegram_startup():
     """
     REQUIRED for webhook mode.
-    Initializes PTB application.
+    Initializes python-telegram-bot application.
     """
     await telegram_app.initialize()
     logger.info("✅ Telegram application initialized")
