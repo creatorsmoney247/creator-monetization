@@ -14,13 +14,18 @@ import psycopg2
 from fastapi import FastAPI, Request, HTTPException
 
 # -------------------------------------------------
+# ROUTERS
+# -------------------------------------------------
+from backend.app.routes.telegram_webhook import router as telegram_router
+
+# -------------------------------------------------
 # LOGGING
 # -------------------------------------------------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("creator-backend")
 
 # -------------------------------------------------
-# ENV HELPERS
+# ENV HELPERS (RENDER-SAFE)
 # -------------------------------------------------
 def get_required_env(name: str) -> str:
     value = os.getenv(name)
@@ -29,13 +34,13 @@ def get_required_env(name: str) -> str:
     return value
 
 # -------------------------------------------------
-# REQUIRED ENV VARS
+# REQUIRED ENV VARS (NO .env)
 # -------------------------------------------------
 DATABASE_URL = get_required_env("DATABASE_URL")
 PAYSTACK_SECRET_KEY = get_required_env("PAYSTACK_SECRET_KEY")
 
 # -------------------------------------------------
-# DATABASE (LAZY CONNECTION — SAFE)
+# DATABASE (LAZY — NO STARTUP CONNECTION)
 # -------------------------------------------------
 def get_db():
     return psycopg2.connect(
@@ -51,8 +56,11 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# Telegram webhook router
+app.include_router(telegram_router)
+
 # -------------------------------------------------
-# HEALTH CHECK (NO DB ACCESS)
+# HEALTH CHECK (NO DB)
 # -------------------------------------------------
 @app.get("/health")
 def health():
@@ -78,7 +86,7 @@ def calculate_pricing(payload: Dict):
     }
 
 # -------------------------------------------------
-# PAYSTACK INIT (DB USED HERE — OK)
+# PAYSTACK INIT (DB USED HERE — SAFE)
 # -------------------------------------------------
 @app.post("/paystack/init")
 def paystack_init(payload: Dict):
@@ -107,13 +115,16 @@ def paystack_init(payload: Dict):
     )
 
     if not response.ok:
-        logger.error(response.text)
+        logger.error("Paystack init failed: %s", response.text)
         raise HTTPException(status_code=400, detail="Paystack init failed")
 
     conn = get_db()
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO payments VALUES (%s, %s, %s, 'pending')",
+        """
+        INSERT INTO payments (reference, telegram_id, amount, status)
+        VALUES (%s, %s, %s, 'pending')
+        """,
         (reference, telegram_id, amount),
     )
     conn.commit()
@@ -122,7 +133,7 @@ def paystack_init(payload: Dict):
     return response.json()["data"]
 
 # -------------------------------------------------
-# PAYSTACK WEBHOOK
+# PAYSTACK WEBHOOK (SECURE)
 # -------------------------------------------------
 @app.post("/paystack/webhook")
 async def paystack_webhook(request: Request):
@@ -155,14 +166,17 @@ async def paystack_webhook(request: Request):
         (reference,),
     )
 
-    cur.execute("""
+    cur.execute(
+        """
         INSERT INTO creators (telegram_id, is_pro, pro_activated_at)
         VALUES (%s, 1, CURRENT_TIMESTAMP)
         ON CONFLICT (telegram_id)
         DO UPDATE SET
-            is_pro=1,
-            pro_activated_at=CURRENT_TIMESTAMP
-    """, (telegram_id,))
+            is_pro = 1,
+            pro_activated_at = CURRENT_TIMESTAMP
+        """,
+        (telegram_id,),
+    )
 
     conn.commit()
     conn.close()

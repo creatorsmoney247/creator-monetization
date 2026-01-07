@@ -4,6 +4,8 @@ import os
 import re
 import requests
 from typing import Optional
+from telegram import Update
+from telegram.ext import ContextTypes
 
 # -------------------------------------------------
 # TELEGRAM CONFIG
@@ -57,7 +59,59 @@ def send_message(chat_id: int, text: str, parse_mode: Optional[str] = "Markdown"
     )
 
 # -------------------------------------------------
-# WEBHOOK HANDLER (USED BY FASTAPI)
+# TELEGRAM HANDLER (USED BY text_router)
+# -------------------------------------------------
+async def pricing_calc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.effective_message
+    if not message or not message.text:
+        return
+
+    text = message.text.strip()
+    parts = re.split(r"\s+", text)
+
+    # Accept exactly 3 values
+    if len(parts) != 3:
+        return  # silently ignore (do NOT break other flows)
+
+    try:
+        followers = parse_number(parts[0])
+        avg_views = parse_number(parts[1])
+        er = float(parts[2])
+        if not (0 < er <= 1):
+            raise ValueError
+    except Exception:
+        await message.reply_text(
+            "❌ **Invalid format**\n\n"
+            "Use:\n"
+            "`followers avg_views engagement_rate`\n\n"
+            "Example:\n"
+            "`10k 2k 0.05`",
+            parse_mode="Markdown",
+        )
+        return
+
+    tier, range_text = tier_from_views(avg_views)
+    pos = engagement_position(er)
+
+    await message.reply_text(
+        "📊 **Creator Market Insight (Nigeria)**\n\n"
+        f"**Followers:** {followers:,}\n"
+        f"**Avg Views:** {avg_views:,}\n"
+        f"**Engagement Rate:** {er:.2%}\n\n"
+        f"**Category:** {tier} Creator\n\n"
+        "Creators with similar reach typically earn:\n"
+        f"• **{range_text} per post/video**\n\n"
+        f"Your engagement suggests you may sit toward the **{pos}** end of this range.\n\n"
+        "⚠️ These are **indicative ranges**, not guarantees.\n"
+        "Pay varies by popularity, content quality, brand budget, and negotiation.\n\n"
+        "👉 **Next action:**\n"
+        "Type `upgrade` to learn how to position yourself confidently.",
+        parse_mode="Markdown",
+    )
+
+
+# -------------------------------------------------
+# LEGACY / API-STYLE HANDLER (KEPT, NOT USED BY BOT)
 # -------------------------------------------------
 async def handle_pricing(message: dict):
     chat_id = message["chat"]["id"]

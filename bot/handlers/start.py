@@ -1,24 +1,40 @@
-# bot/handlers/start.py
+from telegram import Update
+from telegram.ext import ContextTypes
 
-import os
-import requests
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
+async def start_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("🟢 [START.PY HANDLER HIT]")
 
-def send_message(chat_id: int, text: str):
-    requests.post(
-        f"{TELEGRAM_API}/sendMessage",
-        json={"chat_id": chat_id, "text": text},
-        timeout=10,
-    )
+    message = update.effective_message
+    if not message:
+        return
 
-async def handle_start(message: dict):
-    chat_id = message["chat"]["id"]
-    send_message(
-        chat_id,
-        "👋 Welcome to **Creator Monetization Bot**\n\n"
-        "Send your stats like:\n"
+    await message.reply_text(
+        "👋 **Welcome to Creator Monetization Bot**\n\n"
+        "Creators don’t fail because they lack talent — they fail because they **undercharge**.\n\n"
+        "This bot helps you:\n"
+        "💰 Discover what brands SHOULD pay you\n"
+        "📊 Know if you’re being undervalued\n"
+        "🧠 Price yourself with confidence (without sounding greedy)\n\n"
+        "⚠️ Most creators leave money on the table simply because they don’t know their real market value.\n\n"
+        "———\n"
+        "💰 Built for creators who want\n"
+        "**money + long-term credibility**.\n\n"
+        "📈 **Get your pricing insight in 10 seconds**\n\n"
+        "Send your stats in this format:\n"
+        "`followers  avg_views  engagement_rate`\n\n"
+        "Example:\n"
         "`50k 12k 0.08`\n\n"
-        "I’ll estimate your creator market range."
+        "You’ll instantly see:\n"
+        "• Recommended brand price range\n"
+        "• Minimum acceptable rate (never go below this)\n"
+        "• Where you sit in the creator market\n\n"
+        "🔓 **PRO creators unlock:**\n"
+        "• Brand deal reply scripts\n"
+        "• Negotiation leverage\n"
+        "• Monetization positioning tools and others\n\n"
+        "• (“PRO spots limited this month”)\n\n"
+        "👉 **Send your stats now to begin**\n\n"
+        "ℹ️ Need help? Type `/help` anytime.",
+        parse_mode="Markdown",
     )

@@ -1,11 +1,17 @@
 import os
-from dotenv import load_dotenv
-from telegram.ext import Application, CommandHandler, ContextTypes
 
 
-load_dotenv()
+# -------------------------------------------------
+# ENV HELPERS
+# -------------------------------------------------
+def get_required_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value or not value.strip():
+        raise RuntimeError(f"❌ Missing required env var: {name}")
+    return value
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-if TELEGRAM_BOT_TOKEN is None:
-    raise RuntimeError("❌ TELEGRAM_BOT_TOKEN is missing")
+# -------------------------------------------------
+# TELEGRAM CONFIG
+# -------------------------------------------------
+TELEGRAM_BOT_TOKEN: str = get_required_env("TELEGRAM_BOT_TOKEN")
