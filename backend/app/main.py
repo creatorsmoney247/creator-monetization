@@ -57,7 +57,7 @@ app = FastAPI(
 )
 
 # Telegram webhook router
-app.include_router(telegram_router)
+app.include_router(telegram_router, prefix="/telegram")
 
 # -------------------------------------------------
 # HEALTH CHECK (NO DB)
