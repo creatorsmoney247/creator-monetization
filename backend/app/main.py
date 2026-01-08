@@ -41,12 +41,13 @@ DATABASE_URL = get_required_env("DATABASE_URL")
 PAYSTACK_SECRET_KEY = get_required_env("PAYSTACK_SECRET_KEY")
 
 # -------------------------------------------------
-# DATABASE (LAZY CONNECTION — SAFE FOR RENDER)
+# DATABASE (LAZY CONNECTION — POOLER SAFE)
 # -------------------------------------------------
 def get_db():
     return psycopg2.connect(
         DATABASE_URL,
-        connect_timeout=5,
+        connect_timeout=10,
+        sslmode="require"
     )
 
 # -------------------------------------------------
