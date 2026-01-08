@@ -15,26 +15,28 @@ logger = logging.getLogger(__name__)
 # -------------------------------------------------
 PRO_AMOUNT_KOBO = 1_000_000  # ₦10,000
 
-# RENDER INTERNAL URL (bypasses public network)
-RENDER_INTERNAL_URL = "http://localhost:10000"
+# PUBLIC BACKEND URL (Render)
+PUBLIC_BACKEND_URL = "https://creator-monetization.onrender.com"
 
-# BASE_URL for local or overridden usage
+# BASE_URL for local override
 BASE_URL = os.getenv("BASE_URL")
 
 def get_backend_url() -> str:
     """
-    Determines the correct backend URL priority:
-    1. Render internal (always fastest & safest)
-    2. Explicit BASE_URL if provided
-    3. Production fallback (public)
+    Determines correct backend URL priority:
+    1. Explicit BASE_URL if provided
+    2. Render public URL
+    3. Local fallback
     """
-    if os.getenv("RENDER") == "true":
-        return RENDER_INTERNAL_URL
-
     if BASE_URL:
         return BASE_URL.rstrip("/")
 
-    return "http://127.0.0.1:8000"  # local dev fallback
+    # On Render, always use public URL
+    if os.getenv("RENDER") == "true":
+        return PUBLIC_BACKEND_URL
+
+    # Local dev fallback
+    return "http://127.0.0.1:8000"
 
 
 # -------------------------------------------------
