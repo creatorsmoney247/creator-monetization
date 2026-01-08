@@ -82,14 +82,14 @@ async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         response = requests.post(
-            f"{BACKEND_BASE_URL}/paystack/init",
+            "http://localhost:10000/paystack/init",
             json=payload,
             timeout=10,
         )
         response.raise_for_status()
         data = response.json()
     except Exception as e:
-        logger.error("Payment init failed: %s", e)
+        logger.error(f"Payment init failed: {e}")
         await message.reply_text(
             "❌ Payment service temporarily unavailable.\nPlease try again shortly.",
             parse_mode="Markdown"
