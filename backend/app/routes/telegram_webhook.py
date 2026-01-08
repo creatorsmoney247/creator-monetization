@@ -31,7 +31,7 @@ telegram_app: Application = (
 )
 
 # -------------------------------------------------
-# IMPORT HANDLERS (IMPORTANT: NO 'backend.' PREFIX)
+# IMPORT HANDLERS  (IMPORTANT: no 'backend.' prefix)
 # -------------------------------------------------
 from bot.handlers.start import start_message
 from bot.handlers.pricing import pricing_calc
@@ -50,7 +50,7 @@ telegram_app.add_handler(CommandHandler("deal", deal_script))
 telegram_app.add_handler(CommandHandler("status", status))
 
 # -------------------------------------------------
-# REGISTER TEXT ROUTER (NON-COMMANDS)
+# REGISTER TEXT ROUTER (NON-COMMAND TEXT)
 # -------------------------------------------------
 telegram_app.add_handler(
     MessageHandler(filters.TEXT & ~filters.COMMAND, text_router)
@@ -61,13 +61,39 @@ telegram_app.add_handler(
 # -------------------------------------------------
 router = APIRouter(prefix="/telegram")
 
-
+# -------------------------------------------------
+# WEBHOOK ENDPOINT
+# -------------------------------------------------
 @router.post("/webhook")
 async def telegram_webhook(request: Request):
     """
     Receives Telegram webhook updates and routes them to PTB.
     """
     payload = await request.json()
-    update = Update.de_json(payload, telegram_app.bot)
-    await telegram_app.process_update(update)
+
+    try:
+        update = Update.de_json(payload, telegram_app.bot)
+        await telegram_app.process_update(update)
+    except Exception as e:
+        logger.error("❌ Error processing Telegram update: %s", e)
+
     return {"ok": True}
+
+# -------------------------------------------------
+# OPTIONAL: STARTUP / SHUTDOWN HOOKS (SAFE FOR RENDER)
+# -------------------------------------------------
+@router.on_event("startup")
+async def telegram_startup():
+    try:
+        await telegram_app.initialize()
+        logger.info("🤖 Telegram bot initialized")
+    except Exception as e:
+        logger.error("❌ Telegram init failed: %s", e)
+
+@router.on_event("shutdown")
+async def telegram_shutdown():
+    try:
+        await telegram_app.shutdown()
+        logger.info("🛑 Telegram bot shutdown")
+    except Exception as e:
+        logger.error("❌ Telegram shutdown failed: %s", e)
