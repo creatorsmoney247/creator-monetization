@@ -1,27 +1,23 @@
 # backend/bot/handlers/subscribe.py
 
-import os
 import logging
 from typing import Optional
 
-import requests
 from telegram import Update
 from telegram.ext import ContextTypes
+
+from app.services.paystack_service import init_paystack_payment
 
 logger = logging.getLogger(__name__)
 
 # -------------------------------------------------
 # CONFIG
 # -------------------------------------------------
-BASE_URL = os.getenv("BASE_URL")
-if not BASE_URL:
-    raise RuntimeError("BASE_URL environment variable not set")
+PRO_AMOUNT_KOBO = 1_000_000  # ₦10,000
 
-
-PRO_AMOUNT_KOBO = 500_000  # ₦5,000 (example welcome price)
 
 # -------------------------------------------------
-# SAFE REPLY HELPER
+# SAFE REPLY
 # -------------------------------------------------
 async def safe_reply(
     message,
@@ -50,24 +46,21 @@ async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await safe_reply(
         message,
         "🔓 *Upgrade to PRO Creator*\n\n"
-        "You’ve seen where you stand in the creator market.\n"
-        "PRO shows you *how to turn that position into income*.\n\n"
+        "PRO shows you *how to turn your reach into income*.\n\n"
         "🧠 *What PRO unlocks (delivered within 24 hours):*\n"
         "• Market Positioning Blueprint\n"
-        "• Brand Deal Reply Scripts (real scenarios)\n"
-        "• Negotiation Playbook (what to say & when)\n"
+        "• Brand Deal Reply Scripts\n"
+        "• Negotiation Playbook\n"
         "• Pricing Mistakes to Avoid\n"
         "• Campaign Bundling Strategy\n"
-        "• Professional Language Brands Respect\n\n"
-        "📦 You’ll receive a *PRO Creator Monetization Pack*\n"
-        "with PDFs, editable scripts, and examples.\n\n"
-        "💳 *₦5,000 one-time (early access)*\n\n"
+        "• Professional Brand Language\n\n"
+        "💳 *₦10,000 one-time*\n\n"
         "👉 *Next step:* Type `pay` to continue.",
     )
 
 
 # -------------------------------------------------
-# PAY COMMAND
+# PAY COMMAND (STEP 1: ASK FOR EMAIL)
 # -------------------------------------------------
 async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
@@ -76,45 +69,37 @@ async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not message or not user:
         return
 
-    await safe_reply(
-        message,
-        "💳 *Secure Payment (Paystack)*\n\n"
-        "You’ll be redirected to Paystack to complete payment.\n"
-        "After payment, your PRO access is unlocked automatically.\n\n"
-        "⏱ Delivery: within *24 hours*.",
-    )
+    user_data = context.user_data
+    if user_data is None:
+        return
 
-    payload = {
-        "email": f"user{user.id}@telegram.local",  # placeholder
-        "amount": PRO_AMOUNT_KOBO,
-        "metadata": {
-            "telegram_id": str(user.id),
-        },
-    }
-
-    try:
-        response = requests.post(
-            f"{BASE_URL}/paystack/init",
-            json=payload,
-            timeout=15,
+    # Ask for email if we don't have it yet
+    if "pay_email" not in user_data:
+        user_data["awaiting_pay_email"] = True
+        await safe_reply(
+            message,
+            "📧 *Enter your email address*\n\n"
+            "This is required for Paystack payment and receipt delivery.",
         )
-        response.raise_for_status()
-        data = response.json()
-    except Exception as e:
+        return
+
+    email = user_data["pay_email"]
+
+    # -------------------------------------------------
+    # INIT PAYSTACK PAYMENT
+    # -------------------------------------------------
+    try:
+        payment_url = init_paystack_payment(
+            email=email,
+            amount=PRO_AMOUNT_KOBO,
+            telegram_id=str(user.id),
+        )
+    except Exception:
         logger.exception("Paystack init failed")
         await safe_reply(
             message,
             "🚧 *Payment service temporarily unavailable*\n\n"
             "Please try again shortly.",
-        )
-        return
-
-    payment_url = data.get("authorization_url")
-    if not payment_url:
-        await safe_reply(
-            message,
-            "❌ *Payment initialization failed*\n\n"
-            "Please try again later.",
         )
         return
 
