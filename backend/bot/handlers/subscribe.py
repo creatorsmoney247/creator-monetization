@@ -15,11 +15,26 @@ logger = logging.getLogger(__name__)
 # -------------------------------------------------
 PRO_AMOUNT_KOBO = 1_000_000  # ₦10,000
 
-# Prefer Render-provided BASE_URL, otherwise fallback to production default
-BACKEND_BASE_URL = os.getenv(
-    "BASE_URL",
-    "https://creator-monetization.onrender.com"
-).rstrip("/")
+# RENDER INTERNAL URL (bypasses public network)
+RENDER_INTERNAL_URL = "http://localhost:10000"
+
+# BASE_URL for local or overridden usage
+BASE_URL = os.getenv("BASE_URL")
+
+def get_backend_url() -> str:
+    """
+    Determines the correct backend URL priority:
+    1. Render internal (always fastest & safest)
+    2. Explicit BASE_URL if provided
+    3. Production fallback (public)
+    """
+    if os.getenv("RENDER") == "true":
+        return RENDER_INTERNAL_URL
+
+    if BASE_URL:
+        return BASE_URL.rstrip("/")
+
+    return "http://127.0.0.1:8000"  # local dev fallback
 
 
 # -------------------------------------------------
@@ -75,32 +90,33 @@ async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not message or not user:
         return
 
+    backend_url = get_backend_url()
+    payment_init_url = f"{backend_url}/paystack/init"
+
     await safe_reply(
         message,
         "💳 *Initializing secure payment...*"
     )
 
     payload = {
-        "email": f"user{user.id}@gmail.com",   # placeholder but valid
+        "email": f"user{user.id}@gmail.com",
         "amount": PRO_AMOUNT_KOBO,
         "metadata": {"telegram_id": user.id}
     }
 
-    payment_init_url = f"{BACKEND_BASE_URL}/paystack/init"
-
-    logger.info(f"Payment init → {payment_init_url}")
+    logger.info(f"[PAY] Init → {payment_init_url}")
 
     try:
         response = requests.post(
             payment_init_url,
             json=payload,
-            timeout=20,  # ↑ Paystack can be slow
+            timeout=20
         )
         response.raise_for_status()
         data = response.json()
 
     except Exception as e:
-        logger.error(f"Payment init failed: {e}")
+        logger.error(f"[PAY] Init failed → {e}")
         await safe_reply(
             message,
             "❌ Payment service temporarily unavailable.\nPlease try again shortly."
@@ -108,7 +124,7 @@ async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if "authorization_url" not in data:
-        logger.error(f"Payment init malformed response: {data}")
+        logger.error(f"[PAY] Unexpected response: {data}")
         await safe_reply(
             message,
             "⚠️ Unexpected payment response.\nPlease try again later."
