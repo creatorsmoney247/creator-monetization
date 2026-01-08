@@ -14,9 +14,9 @@ import psycopg2
 from fastapi import FastAPI, Request, HTTPException, status
 
 # -------------------------------------------------
-# ROUTERS
+# ROUTERS & TELEGRAM APP IMPORT
 # -------------------------------------------------
-from backend.app.routes.telegram_webhook import router as telegram_router, telegram_app
+from app.routes.telegram_webhook import router as telegram_router, telegram_app
 
 # -------------------------------------------------
 # LOGGING
@@ -72,8 +72,7 @@ async def telegram_shutdown():
 # -------------------------------------------------
 # ROUTERS
 # -------------------------------------------------
-# NOTE: telegram_router already has prefix="/telegram"
-app.include_router(telegram_router)
+app.include_router(telegram_router)   # already prefixed
 
 # -------------------------------------------------
 # HEALTH CHECK (NO DB)
