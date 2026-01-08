@@ -16,7 +16,7 @@ from fastapi import FastAPI, Request, HTTPException, status
 # -------------------------------------------------
 # ROUTERS
 # -------------------------------------------------
-from backend.app.routes.telegram_webhook import router as telegram_router
+from backend.app.routes.telegram_webhook import router as telegram_router, telegram_app
 
 # -------------------------------------------------
 # LOGGING
@@ -32,7 +32,6 @@ def get_required_env(name: str) -> str:
     if not value or not value.strip():
         raise RuntimeError(f"❌ Missing required env var: {name}")
     return value
-
 
 # -------------------------------------------------
 # REQUIRED ENV VARS (NO .env AT RUNTIME)
@@ -56,6 +55,19 @@ app = FastAPI(
     title="Creator Monetization API",
     version="1.0.0",
 )
+
+# -------------------------------------------------
+# TELEGRAM BOT LIFECYCLE
+# -------------------------------------------------
+@app.on_event("startup")
+async def telegram_startup():
+    await telegram_app.initialize()
+    logger.info("🤖 Telegram bot initialized")
+
+@app.on_event("shutdown")
+async def telegram_shutdown():
+    await telegram_app.shutdown()
+    logger.info("🛑 Telegram bot shutdown")
 
 # -------------------------------------------------
 # ROUTERS
@@ -186,17 +198,11 @@ async def paystack_webhook(request: Request):
     try:
         cur = conn.cursor()
 
-        # Mark payment successful
         cur.execute(
-            """
-            UPDATE payments
-            SET status = 'success'
-            WHERE reference = %s
-            """,
+            "UPDATE payments SET status='success' WHERE reference=%s",
             (reference,),
         )
 
-        # Upgrade / upsert creator
         cur.execute(
             """
             INSERT INTO creators (telegram_id, is_pro, pro_activated_at)
