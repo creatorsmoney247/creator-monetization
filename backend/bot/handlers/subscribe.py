@@ -1,6 +1,7 @@
 # backend/bot/handlers/subscribe.py
 
 import logging
+import os
 import requests
 from typing import Optional
 
@@ -13,7 +14,12 @@ logger = logging.getLogger(__name__)
 # CONFIG
 # -------------------------------------------------
 PRO_AMOUNT_KOBO = 1_000_000  # ₦10,000
-BACKEND_BASE_URL = "https://creator-monetization.onrender.com"
+
+# Prefer Render-provided BASE_URL, otherwise fallback to production default
+BACKEND_BASE_URL = os.getenv(
+    "BASE_URL",
+    "https://creator-monetization.onrender.com"
+).rstrip("/")
 
 
 # -------------------------------------------------
@@ -36,7 +42,7 @@ async def safe_reply(
 
 
 # -------------------------------------------------
-# SUBSCRIBE COMMAND
+# /subscribe COMMAND
 # -------------------------------------------------
 async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
@@ -60,7 +66,7 @@ async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # -------------------------------------------------
-# PAY COMMAND
+# /pay COMMAND
 # -------------------------------------------------
 async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
@@ -69,37 +75,50 @@ async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not message or not user:
         return
 
-    await message.reply_text(
-        "💳 *Initializing secure payment...*",
-        parse_mode="Markdown"
+    await safe_reply(
+        message,
+        "💳 *Initializing secure payment...*"
     )
 
     payload = {
-        "email": f"user{user.id}@gmail.com",   # VALID placeholder email
-        "amount": PRO_AMOUNT_KOBO,             # USE config
+        "email": f"user{user.id}@gmail.com",   # placeholder but valid
+        "amount": PRO_AMOUNT_KOBO,
         "metadata": {"telegram_id": user.id}
     }
 
+    payment_init_url = f"{BACKEND_BASE_URL}/paystack/init"
+
+    logger.info(f"Payment init → {payment_init_url}")
+
     try:
         response = requests.post(
-            "http://localhost:10000/paystack/init",
+            payment_init_url,
             json=payload,
-            timeout=10,
+            timeout=20,  # ↑ Paystack can be slow
         )
         response.raise_for_status()
         data = response.json()
+
     except Exception as e:
         logger.error(f"Payment init failed: {e}")
-        await message.reply_text(
-            "❌ Payment service temporarily unavailable.\nPlease try again shortly.",
-            parse_mode="Markdown"
+        await safe_reply(
+            message,
+            "❌ Payment service temporarily unavailable.\nPlease try again shortly."
+        )
+        return
+
+    if "authorization_url" not in data:
+        logger.error(f"Payment init malformed response: {data}")
+        await safe_reply(
+            message,
+            "⚠️ Unexpected payment response.\nPlease try again later."
         )
         return
 
     payment_url = data["authorization_url"]
 
-    await message.reply_text(
+    await safe_reply(
+        message,
         f"👉 *Complete payment here:*\n{payment_url}",
-        parse_mode="Markdown",
-        disable_web_page_preview=False,
+        disable_web_page_preview=False
     )
