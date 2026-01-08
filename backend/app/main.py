@@ -16,7 +16,7 @@ from fastapi import FastAPI, Request, HTTPException, status
 # -------------------------------------------------
 # ROUTERS
 # -------------------------------------------------
-from app.routes.telegram_webhook import router as telegram_router
+from backend.app.routes.telegram_webhook import router as telegram_router
 
 # -------------------------------------------------
 # LOGGING

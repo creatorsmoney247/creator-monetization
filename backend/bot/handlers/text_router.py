@@ -1,9 +1,10 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from bot.handlers.deal import deal_step_handler
-from bot.handlers.pricing import pricing_calc
-from bot.handlers.subscribe import subscribe_command, pay_command
+from backend.bot.handlers.pricing import pricing_calc
+from backend.bot.handlers.deal import deal_step_handler
+from backend.bot.handlers.subscribe import subscribe_command
+from backend.bot.handlers.subscribe import pay_command
 
 
 async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
