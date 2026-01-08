@@ -6,7 +6,7 @@ from typing import Optional
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from app.services.paystack_service import init_paystack_payment
+from backend.app.services.paystack_service import init_paystack_payment
 
 logger = logging.getLogger(__name__)
 

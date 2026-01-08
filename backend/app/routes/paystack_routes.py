@@ -38,6 +38,8 @@ def get_db():
 # -------------------------------------------------
 # INIT PAYMENT
 # -------------------------------------------------
+from app.services.paystack_service import init_paystack_payment
+
 @router.post("/init")
 def init_payment(payload: Dict):
     try:
@@ -47,47 +49,8 @@ def init_payment(payload: Dict):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid payload")
 
-    reference = str(uuid.uuid4())
-
-    headers = {
-        "Authorization": f"Bearer {PAYSTACK_SECRET_KEY}",
-        "Content-Type": "application/json",
-    }
-
-    data = {
-        "email": email,
-        "amount": amount,
-        "reference": reference,
-        "metadata": {"telegram_id": telegram_id},
-    }
-
-    res = requests.post(
-        "https://api.paystack.co/transaction/initialize",
-        json=data,
-        headers=headers,
-        timeout=15,
-    )
-
-    if not res.ok:
-        logger.error(res.text)
-        raise HTTPException(status_code=400, detail="Paystack init failed")
-
-    # Save pending payment
-    conn = get_db()
-    cur = conn.cursor()
-
-    cur.execute(
-        """
-        INSERT INTO payments (reference, telegram_id, amount, status)
-        VALUES (%s, %s, %s, 'pending')
-        """,
-        (reference, telegram_id, amount),
-    )
-
-    conn.commit()
-    conn.close()
-
-    return res.json()["data"]
+    url = init_paystack_payment(email, amount, telegram_id)
+    return {"authorization_url": url}
 
 
 # -------------------------------------------------
