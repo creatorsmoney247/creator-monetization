@@ -22,7 +22,7 @@ if not BOT_TOKEN:
     raise RuntimeError("TELEGRAM_BOT_TOKEN missing")
 
 # -------------------------------------------------
-# TELEGRAM APPLICATION (WEBHOOK MODE)
+# TELEGRAM APPLICATION
 # -------------------------------------------------
 telegram_app: Application = (
     Application.builder()
@@ -31,19 +31,17 @@ telegram_app: Application = (
 )
 
 # -------------------------------------------------
-# IMPORT BOT HANDLERS
+# IMPORT HANDLERS (IMPORTANT: NO 'backend.' PREFIX)
 # -------------------------------------------------
-
-
-from backend.bot.handlers.start import start_message
-from backend.bot.handlers.pricing import pricing_calc
-from backend.bot.handlers.deal import deal_script, deal_step_handler
-from backend.bot.handlers.subscribe import subscribe_command, pay_command
-from backend.bot.handlers.status import status
-from backend.bot.handlers.text_router import text_router
+from bot.handlers.start import start_message
+from bot.handlers.pricing import pricing_calc
+from bot.handlers.deal import deal_script, deal_step_handler
+from bot.handlers.subscribe import subscribe_command, pay_command
+from bot.handlers.status import status
+from bot.handlers.text_router import text_router
 
 # -------------------------------------------------
-# REGISTER COMMAND HANDLERS
+# REGISTER BOT COMMANDS
 # -------------------------------------------------
 telegram_app.add_handler(CommandHandler("start", start_message))
 telegram_app.add_handler(CommandHandler("upgrade", subscribe_command))
@@ -52,7 +50,7 @@ telegram_app.add_handler(CommandHandler("deal", deal_script))
 telegram_app.add_handler(CommandHandler("status", status))
 
 # -------------------------------------------------
-# REGISTER TEXT HANDLER (ONE ONLY)
+# REGISTER TEXT ROUTER (NON-COMMANDS)
 # -------------------------------------------------
 telegram_app.add_handler(
     MessageHandler(filters.TEXT & ~filters.COMMAND, text_router)
@@ -64,32 +62,12 @@ telegram_app.add_handler(
 router = APIRouter(prefix="/telegram")
 
 
-@router.on_event("startup")
-async def telegram_startup():
-    """
-    REQUIRED for webhook mode.
-    Initializes python-telegram-bot application.
-    """
-    await telegram_app.initialize()
-    logger.info("✅ Telegram application initialized")
-
-
-@router.on_event("shutdown")
-async def telegram_shutdown():
-    await telegram_app.shutdown()
-    logger.info("🛑 Telegram application shutdown")
-
-
 @router.post("/webhook")
 async def telegram_webhook(request: Request):
     """
-    Receives Telegram updates and forwards them
-    to python-telegram-bot dispatcher.
+    Receives Telegram webhook updates and routes them to PTB.
     """
     payload = await request.json()
-
     update = Update.de_json(payload, telegram_app.bot)
-
     await telegram_app.process_update(update)
-
     return {"ok": True}

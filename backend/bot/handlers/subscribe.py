@@ -1,12 +1,11 @@
 # backend/bot/handlers/subscribe.py
 
 import logging
+import requests
 from typing import Optional
 
 from telegram import Update
 from telegram.ext import ContextTypes
-
-from backend.app.services.paystack_service import init_paystack_payment
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +13,7 @@ logger = logging.getLogger(__name__)
 # CONFIG
 # -------------------------------------------------
 PRO_AMOUNT_KOBO = 1_000_000  # ₦10,000
+BACKEND_BASE_URL = "https://creator-monetization.onrender.com"
 
 
 # -------------------------------------------------
@@ -60,7 +60,7 @@ async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # -------------------------------------------------
-# PAY COMMAND (STEP 1: ASK FOR EMAIL)
+# PAY COMMAND
 # -------------------------------------------------
 async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
@@ -69,42 +69,37 @@ async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not message or not user:
         return
 
-    user_data = context.user_data
-    if user_data is None:
-        return
+    await message.reply_text(
+        "💳 *Initializing secure payment...*",
+        parse_mode="Markdown"
+    )
 
-    # Ask for email if we don't have it yet
-    if "pay_email" not in user_data:
-        user_data["awaiting_pay_email"] = True
-        await safe_reply(
-            message,
-            "📧 *Enter your email address*\n\n"
-            "This is required for Paystack payment and receipt delivery.",
-        )
-        return
+    payload = {
+        "email": f"user{user.id}@gmail.com",   # VALID placeholder email
+        "amount": PRO_AMOUNT_KOBO,             # USE config
+        "metadata": {"telegram_id": user.id}
+    }
 
-    email = user_data["pay_email"]
-
-    # -------------------------------------------------
-    # INIT PAYSTACK PAYMENT
-    # -------------------------------------------------
     try:
-        payment_url = init_paystack_payment(
-            email=email,
-            amount=PRO_AMOUNT_KOBO,
-            telegram_id=str(user.id),
+        response = requests.post(
+            f"{BACKEND_BASE_URL}/paystack/init",
+            json=payload,
+            timeout=10,
         )
-    except Exception:
-        logger.exception("Paystack init failed")
-        await safe_reply(
-            message,
-            "🚧 *Payment service temporarily unavailable*\n\n"
-            "Please try again shortly.",
+        response.raise_for_status()
+        data = response.json()
+    except Exception as e:
+        logger.error("Payment init failed: %s", e)
+        await message.reply_text(
+            "❌ Payment service temporarily unavailable.\nPlease try again shortly.",
+            parse_mode="Markdown"
         )
         return
 
-    await safe_reply(
-        message,
+    payment_url = data["authorization_url"]
+
+    await message.reply_text(
         f"👉 *Complete payment here:*\n{payment_url}",
+        parse_mode="Markdown",
         disable_web_page_preview=False,
     )
