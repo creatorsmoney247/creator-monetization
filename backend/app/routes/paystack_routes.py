@@ -32,7 +32,11 @@ DATABASE_URL = get_required_env("DATABASE_URL")
 # DB (SUPABASE / POSTGRES)
 # -------------------------------------------------
 def get_db():
-    return psycopg2.connect(DATABASE_URL)
+    return psycopg2.connect(
+        DATABASE_URL,
+        sslmode="require",
+        connect_timeout=5,
+    )
 
 
 # -------------------------------------------------
