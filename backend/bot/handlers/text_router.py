@@ -5,9 +5,6 @@ from bot.handlers.pricing import pricing_calc
 from bot.handlers.deal import deal_step_handler
 from bot.handlers.subscribe import subscribe_command
 from bot.handlers.subscribe import pay_command
-from .help import help_message
-
-
 
 async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
