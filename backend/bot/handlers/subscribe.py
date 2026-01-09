@@ -1,8 +1,6 @@
-# backend/bot/handlers/subscribe.py
-
 import logging
 import os
-import requests
+import httpx
 from typing import Optional
 
 from telegram import Update
@@ -13,20 +11,21 @@ logger = logging.getLogger(__name__)
 # -------------------------------------------------
 # CONFIG
 # -------------------------------------------------
-PRO_AMOUNT_KOBO = 1_000_000  # ₦10,000
+PRO_AMOUNT_KOBO = 1_000_000  # ₦10,000 one-time
 
-# PUBLIC BACKEND URL (Render)
+# Public backend URL (Render)
 PUBLIC_BACKEND_URL = "https://creator-monetization.onrender.com"
 
-# BASE_URL for local override
+# Optional local override (useful for dev)
 BASE_URL = os.getenv("BASE_URL")
+
 
 def get_backend_url() -> str:
     """
     Determines correct backend URL priority:
     1. Explicit BASE_URL if provided
-    2. Render public URL
-    3. Local fallback
+    2. Render public URL when RENDER=true
+    3. Local fallback for development
     """
     if BASE_URL:
         return BASE_URL.rstrip("/")
@@ -101,19 +100,16 @@ async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     payload = {
         "email": f"user{user.id}@gmail.com",
         "amount": PRO_AMOUNT_KOBO,
-        "metadata": {"telegram_id": user.id}
+        "metadata": {"telegram_id": user.id},
     }
 
     logger.info(f"[PAY] Init → {payment_init_url}")
 
     try:
-        response = requests.post(
-            payment_init_url,
-            json=payload,
-            timeout=20
-        )
-        response.raise_for_status()
-        raw = response.json()
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(payment_init_url, json=payload)
+            resp.raise_for_status()
+            raw = resp.json()
 
     except Exception as e:
         logger.error(f"[PAY] Init failed → {e}")
