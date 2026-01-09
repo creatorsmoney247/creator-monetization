@@ -31,11 +31,9 @@ def get_backend_url() -> str:
     if BASE_URL:
         return BASE_URL.rstrip("/")
 
-    # On Render, always use public URL
     if os.getenv("RENDER") == "true":
         return PUBLIC_BACKEND_URL
 
-    # Local dev fallback
     return "http://127.0.0.1:8000"
 
 
@@ -115,7 +113,7 @@ async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             timeout=20
         )
         response.raise_for_status()
-        data = response.json()
+        raw = response.json()
 
     except Exception as e:
         logger.error(f"[PAY] Init failed → {e}")
@@ -125,18 +123,27 @@ async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    if "authorization_url" not in data:
-        logger.error(f"[PAY] Unexpected response: {data}")
+    # Normalize Paystack response shape
+    if isinstance(raw, dict):
+        if "authorization_url" in raw:
+            auth_url = raw["authorization_url"]
+        elif "data" in raw and isinstance(raw["data"], dict):
+            auth_url = raw["data"].get("authorization_url")
+        else:
+            auth_url = None
+    else:
+        auth_url = None
+
+    if not auth_url:
+        logger.error(f"[PAY] Unexpected response: {raw}")
         await safe_reply(
             message,
             "⚠️ Unexpected payment response.\nPlease try again later."
         )
         return
 
-    payment_url = data["authorization_url"]
-
     await safe_reply(
         message,
-        f"👉 *Complete payment here:*\n{payment_url}",
+        f"👉 *Complete payment here:*\n{auth_url}",
         disable_web_page_preview=False
     )
