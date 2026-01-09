@@ -11,6 +11,8 @@ async def start_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await message.reply_text(
         "👋 **Welcome to Creator Monetization Bot**\n\n"
+        "✨ *Unlock the hidden power of your social media presence!* ✨\n"
+        "Grow your influence, master virality, and build a brand that sells.\n\n"
         "Creators don’t fail because they lack talent — they fail because they **undercharge**.\n\n"
         "This bot helps you:\n"
         "💰 Discover what brands SHOULD pay you\n"
@@ -33,7 +35,7 @@ async def start_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Brand deal reply scripts\n"
         "• Negotiation leverage\n"
         "• Monetization positioning tools and others\n\n"
-        "• (“PRO spots limited this month”)\n\n"
+        "✨ If you want to turn your reach into money, PRO shows you how.\n\n"
         "👉 **Send your stats now to begin**\n\n"
         "ℹ️ Need help? Type `/help` anytime.",
         parse_mode="Markdown",
