@@ -46,9 +46,10 @@ PAYSTACK_SECRET_KEY = get_required_env("PAYSTACK_SECRET_KEY")
 def get_db():
     return psycopg2.connect(
         DATABASE_URL,
-        connect_timeout=10,
-        sslmode="require"
+        sslmode="require",
+        connect_timeout=5,
     )
+
 
 # -------------------------------------------------
 # FASTAPI APP
@@ -82,6 +83,19 @@ app.include_router(telegram_router)   # already prefixed
 @app.get("/health", status_code=status.HTTP_200_OK)
 def health():
     return {"status": "ok"}
+
+
+# -------------------------------------------------
+# DB TEST (DB CONNECTION CHECK)
+# -------------------------------------------------
+@app.get("/db/test", status_code=status.HTTP_200_OK)
+def db_test():
+    try:
+        conn = get_db()
+        conn.close()
+        return {"db": "ok"}
+    except Exception as e:
+        return {"db": "error", "detail": str(e)}
 
 # -------------------------------------------------
 # PRICING API (NO DB)
