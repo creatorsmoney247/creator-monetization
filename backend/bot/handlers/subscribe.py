@@ -1,6 +1,7 @@
 import logging
 import os
 import httpx
+import asyncio
 from typing import Optional
 
 from telegram import Update
@@ -105,21 +106,33 @@ async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.info(f"[PAY] Init → {payment_init_url}")
 
-    try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.post(payment_init_url, json=payload)
-            resp.raise_for_status()
-            raw = resp.json()
+    # -------------------------------------------------
+    # RETRY LOGIC FOR RENDER COLD START / RESTART
+    # -------------------------------------------------
+    raw = None
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                resp = await client.post(payment_init_url, json=payload)
+                resp.raise_for_status()
+                raw = resp.json()
+                break  # success → exit loop
 
-    except Exception as e:
-        logger.error(f"[PAY] Init failed → {e}")
-        await safe_reply(
-            message,
-            "❌ Payment service temporarily unavailable.\nPlease try again shortly."
-        )
-        return
+        except Exception as e:
+            logger.warning(f"[PAY] Attempt {attempt+1}/3 failed → {e}")
+            if attempt < 2:
+                await asyncio.sleep(3)
+            else:
+                logger.error(f"[PAY] Init failed after 3 attempts → {e}")
+                await safe_reply(
+                    message,
+                    "❌ Payment service temporarily unavailable.\nPlease try again shortly."
+                )
+                return
 
-    # Normalize Paystack response shape
+    # -------------------------------------------------
+    # NORMALIZE PAYSTACK RESPONSE
+    # -------------------------------------------------
     if isinstance(raw, dict):
         if "authorization_url" in raw:
             auth_url = raw["authorization_url"]
