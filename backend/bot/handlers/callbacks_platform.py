@@ -3,6 +3,7 @@ from typing import Optional, Dict, Any, cast
 
 from telegram import Update, CallbackQuery
 from telegram.ext import ContextTypes
+from bot.keyboards.niches import niche_keyboard
 
 
 async def platform_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -48,5 +49,7 @@ async def platform_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     await context.bot.send_message(
         chat_id,
-        "📂 Now choose your niche (coming next...)"
+        "📂 Now select your *niche:*",
+        parse_mode="Markdown",
+        reply_markup=niche_keyboard()
     )

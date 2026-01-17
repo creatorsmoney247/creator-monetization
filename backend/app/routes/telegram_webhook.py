@@ -20,7 +20,7 @@ logger = logging.getLogger("telegram-webhook")
 # -------------------------------------------------
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not BOT_TOKEN:
-    raise RuntimeError("TELEGRAM_BOT_TOKEN missing")
+    raise RuntimeError("TELEGRAM_BOT_TOKEN is missing")
 
 # -------------------------------------------------
 # TELEGRAM APPLICATION
@@ -32,7 +32,7 @@ telegram_app: Application = (
 )
 
 # -------------------------------------------------
-# IMPORT HANDLERS  (IMPORTANT: no 'backend.' prefix)
+# IMPORT HANDLERS (NO backend. PREFIXES)
 # -------------------------------------------------
 from bot.handlers.start import start_message
 from bot.handlers.pricing import pricing_calc
@@ -40,13 +40,19 @@ from bot.handlers.deal import deal_script, deal_step_handler
 from bot.handlers.subscribe import subscribe_command, pay_command
 from bot.handlers.status import status
 from bot.handlers.text_router import text_router
+from bot.handlers.callbacks_platform import platform_selected
+from bot.callbacks_niche import niche_selected
+
 
 # -------------------------------------------------
 # REGISTER CALLBACK HANDLERS
 # -------------------------------------------------
-from bot.handlers.callbacks_platform import platform_selected
 telegram_app.add_handler(
-    CallbackQueryHandler(platform_selected, pattern="^platform_")
+    CallbackQueryHandler(platform_selected, pattern=r"^platform_")
+)
+
+telegram_app.add_handler(
+    CallbackQueryHandler(niche_selected, pattern=r"^niche_")
 )
 
 # -------------------------------------------------
@@ -71,12 +77,12 @@ telegram_app.add_handler(
 router = APIRouter(prefix="/telegram")
 
 # -------------------------------------------------
-# WEBHOOK ENDPOINT
+# WEBHOOK ENDPOINT (REQUIRED BY TELEGRAM)
 # -------------------------------------------------
 @router.post("/webhook")
 async def telegram_webhook(request: Request):
     """
-    Receives Telegram webhook updates and routes them to PTB.
+    Receives Telegram webhook updates and routes to python-telegram-bot.
     """
     payload = await request.json()
 
