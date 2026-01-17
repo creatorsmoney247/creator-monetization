@@ -87,22 +87,3 @@ async def telegram_webhook(request: Request):
         logger.error("❌ Error processing Telegram update: %s", e)
 
     return {"ok": True}
-
-# -------------------------------------------------
-# OPTIONAL: STARTUP / SHUTDOWN HOOKS (SAFE FOR RENDER)
-# -------------------------------------------------
-@router.on_event("startup")
-async def telegram_startup():
-    try:
-        await telegram_app.initialize()
-        logger.info("🤖 Telegram bot initialized")
-    except Exception as e:
-        logger.error("❌ Telegram init failed: %s", e)
-
-@router.on_event("shutdown")
-async def telegram_shutdown():
-    try:
-        await telegram_app.shutdown()
-        logger.info("🛑 Telegram bot shutdown")
-    except Exception as e:
-        logger.error("❌ Telegram shutdown failed: %s", e)
