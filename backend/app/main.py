@@ -12,6 +12,7 @@ from typing import Dict, Any
 import requests
 import psycopg2
 from fastapi import FastAPI, Request, HTTPException, status
+from .db_auto_migrate import run_migrations
 
 # -------------------------------------------------
 # ROUTERS & TELEGRAM APP IMPORT
@@ -58,7 +59,7 @@ app = FastAPI(
     title="Creator Monetization API",
     version="1.0.0",
 )
-
+run_migrations()
 # -------------------------------------------------
 # TELEGRAM BOT LIFECYCLE
 # -------------------------------------------------

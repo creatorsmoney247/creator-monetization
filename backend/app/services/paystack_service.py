@@ -108,10 +108,10 @@ def init_paystack_payment(email: str, amount: int, telegram_id: str) -> str:
         cur = conn.cursor()
         cur.execute(
             """
-            INSERT INTO payments (reference, telegram_id, amount, status)
-            VALUES (%s, %s, %s, 'pending')
+            INSERT INTO payments (reference, telegram_id, amount, status, plan)
+            VALUES (%s, %s, %s, 'pending', %s)
             """,
-            (reference, telegram_id, amount),
+            (reference, telegram_id, 'lifetime')  # default keeps current behavior
         )
 
         conn.commit()

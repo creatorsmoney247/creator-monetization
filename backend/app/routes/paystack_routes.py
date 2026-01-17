@@ -136,13 +136,27 @@ async def paystack_webhook(request: Request):
 
         # Unlock PRO
         cur.execute("""
-            INSERT INTO creators (telegram_id, is_pro, pro_activated_at)
-            VALUES (%s, 1, CURRENT_TIMESTAMP)
+            INSERT INTO creators (
+                telegram_id,
+                is_pro,
+                pro_activated_at,
+                pro_expires_at,
+                whitelisting_enabled
+            )
+            VALUES (%s, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '365 days', TRUE)
             ON CONFLICT (telegram_id)
             DO UPDATE SET
                 is_pro=1,
-                pro_activated_at=CURRENT_TIMESTAMP
+                pro_activated_at=CURRENT_TIMESTAMP,
+                pro_expires_at=CURRENT_TIMESTAMP + INTERVAL '365 days',
+                whitelisting_enabled=TRUE;
         """, (str(telegram_id),))
+
+        cur.execute(
+            "UPDATE payments SET status='success', paid_at=CURRENT_TIMESTAMP WHERE reference=%s",
+            (reference,)
+        )
+
 
         conn.commit()
 

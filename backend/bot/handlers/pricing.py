@@ -1,8 +1,11 @@
 # bot/handlers/pricing.py
 
 import re
+from typing import cast, Dict, Any
 from telegram import Update
 from telegram.ext import ContextTypes
+
+from bot.keyboards.platforms import platform_keyboard
 
 
 # -------------------------------------------------
@@ -17,26 +20,12 @@ def parse_number(value: str) -> int:
     return int(float(value))
 
 
-def engagement_position(er: float) -> str:
-    if er >= 0.08:
-        return "upper"
-    if er >= 0.05:
-        return "middle"
-    return "lower"
-
-
-def tier_from_views(avg_views: int):
-    if avg_views < 1_000:
-        return ("Starter", "₦2,000 – ₦5,000")
-    if avg_views < 5_000:
-        return ("Early-Growth", "₦3,000 – ₦10,000")
-    if avg_views < 15_000:
-        return ("Growth", "₦10,000 – ₦25,000")
-    if avg_views < 50_000:
-        return ("Rising", "₦15,000 – ₦40,000")
-    if avg_views < 150_000:
-        return ("Established", "₦40,000 – ₦100,000")
-    return ("Premium", "₦100,000+")
+def parse_engagement(er_raw: str) -> float:
+    """Parses engagement rate ensuring it is between 0 and 1."""
+    er = float(er_raw)
+    if not (0 < er <= 1):
+        raise ValueError("Invalid engagement")
+    return er
 
 
 # -------------------------------------------------
@@ -50,43 +39,39 @@ async def pricing_calc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = message.text.strip()
     parts = re.split(r"\s+", text)
 
-    # Expect exactly 3 values
     if len(parts) != 3:
-        return  # allow router to continue silently
+        return  # allow text_router to continue
 
     try:
         followers = parse_number(parts[0])
         avg_views = parse_number(parts[1])
-        er = float(parts[2])
-
-        if not (0 < er <= 1):
-            raise ValueError
+        engagement = parse_engagement(parts[2])
     except Exception:
         await message.reply_text(
             "❌ *Invalid format*\n\n"
             "Use:\n"
             "`followers avg_views engagement_rate`\n\n"
             "Example:\n"
-            "`10k 2k 0.05`",
+            "`50k 12000 0.08`",
             parse_mode="Markdown",
         )
         return
 
-    tier, range_text = tier_from_views(avg_views)
-    pos = engagement_position(er)
+ 
+    # ----------- Pylance-safe handling for user_data ----------
+    ud = cast(Dict[str, Any], context.user_data)
+
+    ud["stats"] = {
+        "followers": followers,
+        "avg_views": avg_views,
+        "engagement": engagement,
+    }
+# ----------------------------------------------------------
+
+    # ----------------------------------------------------------
 
     await message.reply_text(
-        "📊 *Creator Market Insight (Nigeria)*\n\n"
-        f"*Followers:* {followers:,}\n"
-        f"*Avg Views:* {avg_views:,}\n"
-        f"*Engagement Rate:* {er:.2%}\n\n"
-        f"*Category:* {tier} Creator\n\n"
-        "Creators with similar reach typically earn:\n"
-        f"• *{range_text} per post/video*\n\n"
-        f"Your engagement suggests you may sit toward the *{pos}* end of this range.\n\n"
-        "⚠️ These are *indicative ranges*, not guarantees.\n"
-        "Pay varies by popularity, content quality, brand budget, and negotiation.\n\n"
-        "👉 *Next action:*\n"
-        "Type `upgrade` to learn how to position yourself confidently.",
-        parse_mode="Markdown",
+        "📱 Which *platform* are you pricing for?",
+        reply_markup=platform_keyboard(),
+        parse_mode="Markdown"
     )
