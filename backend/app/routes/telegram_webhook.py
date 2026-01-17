@@ -42,6 +42,7 @@ from bot.handlers.status import status
 from bot.handlers.text_router import text_router
 from bot.handlers.callbacks_platform import platform_selected
 from bot.callbacks_niche import niche_selected
+
 # -------------------------------------------------
 # REGISTER CALLBACK HANDLERS
 # -------------------------------------------------
@@ -73,6 +74,19 @@ telegram_app.add_handler(
 # FASTAPI ROUTER
 # -------------------------------------------------
 router = APIRouter(prefix="/telegram")
+
+# -------------------------------------------------
+# STARTUP / SHUTDOWN HOOKS (IMPORTANT FOR RENDER)
+# -------------------------------------------------
+@router.on_event("startup")
+async def bot_start():
+    await telegram_app.initialize()
+    logger.info("🤖 Telegram bot initialized")
+
+@router.on_event("shutdown")
+async def bot_stop():
+    await telegram_app.shutdown()
+    logger.info("🛑 Telegram bot shutdown")
 
 # -------------------------------------------------
 # WEBHOOK ENDPOINT (REQUIRED BY TELEGRAM)
