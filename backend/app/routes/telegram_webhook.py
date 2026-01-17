@@ -5,6 +5,7 @@ from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
+    CallbackQueryHandler,
     MessageHandler,
     filters,
 )
@@ -39,6 +40,14 @@ from bot.handlers.deal import deal_script, deal_step_handler
 from bot.handlers.subscribe import subscribe_command, pay_command
 from bot.handlers.status import status
 from bot.handlers.text_router import text_router
+
+# -------------------------------------------------
+# REGISTER CALLBACK HANDLERS
+# -------------------------------------------------
+from bot.handlers.callbacks_platform import platform_selected
+telegram_app.add_handler(
+    CallbackQueryHandler(platform_selected, pattern="^platform_")
+)
 
 # -------------------------------------------------
 # REGISTER BOT COMMANDS
