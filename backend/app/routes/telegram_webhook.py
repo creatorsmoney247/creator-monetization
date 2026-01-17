@@ -32,7 +32,7 @@ telegram_app: Application = (
 )
 
 # -------------------------------------------------
-# IMPORT HANDLERS (NO backend. PREFIXES)
+# IMPORT HANDLERS (NO backend PREFIX)
 # -------------------------------------------------
 from bot.handlers.start import start_message
 from bot.handlers.pricing import pricing_calc
@@ -42,8 +42,6 @@ from bot.handlers.status import status
 from bot.handlers.text_router import text_router
 from bot.handlers.callbacks_platform import platform_selected
 from bot.callbacks_niche import niche_selected
-
-
 # -------------------------------------------------
 # REGISTER CALLBACK HANDLERS
 # -------------------------------------------------
