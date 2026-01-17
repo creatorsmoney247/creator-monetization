@@ -10,13 +10,10 @@ from telegram.ext import (
     filters,
 )
 
-# -------------------------------------------------
-# LOGGING
-# -------------------------------------------------
 logger = logging.getLogger("telegram-webhook")
 
 # -------------------------------------------------
-# ENV
+# ENVIRONMENT
 # -------------------------------------------------
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not BOT_TOKEN:
@@ -32,7 +29,7 @@ telegram_app: Application = (
 )
 
 # -------------------------------------------------
-# IMPORT HANDLERS (NO backend PREFIX)
+# IMPORT HANDLERS (NO backend PREFIXES!)
 # -------------------------------------------------
 from bot.handlers.start import start_message
 from bot.handlers.pricing import pricing_calc
@@ -49,7 +46,6 @@ from bot.callbacks_niche import niche_selected
 telegram_app.add_handler(
     CallbackQueryHandler(platform_selected, pattern=r"^platform_")
 )
-
 telegram_app.add_handler(
     CallbackQueryHandler(niche_selected, pattern=r"^niche_")
 )
@@ -76,25 +72,12 @@ telegram_app.add_handler(
 router = APIRouter(prefix="/telegram")
 
 # -------------------------------------------------
-# STARTUP / SHUTDOWN HOOKS (IMPORTANT FOR RENDER)
-# -------------------------------------------------
-@router.on_event("startup")
-async def bot_start():
-    await telegram_app.initialize()
-    logger.info("🤖 Telegram bot initialized")
-
-@router.on_event("shutdown")
-async def bot_stop():
-    await telegram_app.shutdown()
-    logger.info("🛑 Telegram bot shutdown")
-
-# -------------------------------------------------
 # WEBHOOK ENDPOINT (REQUIRED BY TELEGRAM)
 # -------------------------------------------------
 @router.post("/webhook")
 async def telegram_webhook(request: Request):
     """
-    Receives Telegram webhook updates and routes to python-telegram-bot.
+    Receives Telegram webhook updates and routes them to python-telegram-bot.
     """
     payload = await request.json()
 
