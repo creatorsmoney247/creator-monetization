@@ -12,16 +12,20 @@ from typing import Dict, Any
 import requests
 import psycopg2
 from fastapi import FastAPI, Request, HTTPException, status
+
+# -------------------------------------------------
+# DB MIGRATIONS
+# -------------------------------------------------
 from .db_auto_migrate import run_migrations
 
 # -------------------------------------------------
-# ROUTERS & TELEGRAM APP IMPORT
+# ROUTERS & TELEGRAM BOT IMPORTS
 # -------------------------------------------------
 from app.routes.telegram_webhook import router as telegram_router
 from app.routes.telegram_webhook import telegram_app
 
 # -------------------------------------------------
-# LOGGING
+# LOGGING SETUP
 # -------------------------------------------------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("creator-backend")
@@ -36,7 +40,7 @@ def get_required_env(name: str) -> str:
     return value
 
 # -------------------------------------------------
-# REQUIRED ENV VARS (NO .env AT RUNTIME)
+# REQUIRED ENV VARS
 # -------------------------------------------------
 DATABASE_URL = get_required_env("DATABASE_URL")
 PAYSTACK_SECRET_KEY = get_required_env("PAYSTACK_SECRET_KEY")
@@ -51,7 +55,6 @@ def get_db():
         connect_timeout=5,
     )
 
-
 # -------------------------------------------------
 # FASTAPI APP
 # -------------------------------------------------
@@ -59,35 +62,54 @@ app = FastAPI(
     title="Creator Monetization API",
     version="1.0.0",
 )
-run_migrations()
+
 # -------------------------------------------------
-# TELEGRAM BOT LIFECYCLE
+# STARTUP LIFECYCLE (MIGRATIONS + BOT INIT)
 # -------------------------------------------------
 @app.on_event("startup")
-async def telegram_startup():
-    await telegram_app.initialize()
-    logger.info("🤖 Telegram bot initialized")
+async def startup_event():
+    logger.info("🚀 Startup event triggered")
 
+    # --- SAFE DB MIGRATIONS ---
+    try:
+        logger.info("🛠 Running DB migrations...")
+        run_migrations()
+        logger.info("✅ Migrations complete")
+    except Exception as e:
+        logger.error(f"❌ Migration error: {e}")
+
+    # --- INIT TELEGRAM BOT ---
+    try:
+        await telegram_app.initialize()
+        logger.info("🤖 Telegram bot initialized")
+    except Exception as e:
+        logger.error(f"❌ Telegram init failed: {e}")
+
+# -------------------------------------------------
+# SHUTDOWN LIFECYCLE
+# -------------------------------------------------
 @app.on_event("shutdown")
-async def telegram_shutdown():
-    await telegram_app.shutdown()
-    logger.info("🛑 Telegram bot shutdown")
+async def shutdown_event():
+    try:
+        await telegram_app.shutdown()
+        logger.info("🛑 Telegram bot shutdown")
+    except Exception as e:
+        logger.error(f"❌ Telegram shutdown failed: {e}")
 
 # -------------------------------------------------
 # ROUTERS
 # -------------------------------------------------
-app.include_router(telegram_router)   # already prefixed
+app.include_router(telegram_router)
 
 # -------------------------------------------------
-# HEALTH CHECK (NO DB)
+# HEALTH CHECK (NO DB REQUIRED)
 # -------------------------------------------------
 @app.get("/health", status_code=status.HTTP_200_OK)
 def health():
     return {"status": "ok"}
 
-
 # -------------------------------------------------
-# DB TEST (DB CONNECTION CHECK)
+# DB TEST (CONNECTION CHECK)
 # -------------------------------------------------
 @app.get("/db/test", status_code=status.HTTP_200_OK)
 def db_test():
@@ -99,7 +121,7 @@ def db_test():
         return {"db": "error", "detail": str(e)}
 
 # -------------------------------------------------
-# PRICING API (NO DB)
+# SIMPLE PRICING ENDPOINT (NO DB)
 # -------------------------------------------------
 @app.post("/pricing/calculate", status_code=status.HTTP_200_OK)
 def calculate_pricing(payload: Dict[str, Any]):
@@ -109,7 +131,7 @@ def calculate_pricing(payload: Dict[str, Any]):
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid payload",
+            detail="Invalid payload"
         )
 
     recommended = int((avg_views * engagement) * 2)
@@ -121,7 +143,7 @@ def calculate_pricing(payload: Dict[str, Any]):
     }
 
 # -------------------------------------------------
-# PAYSTACK INITIALIZATION
+# PAYSTACK INIT
 # -------------------------------------------------
 @app.post("/paystack/init", status_code=status.HTTP_200_OK)
 def paystack_init(payload: Dict[str, Any]):
@@ -132,7 +154,7 @@ def paystack_init(payload: Dict[str, Any]):
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid payload",
+            detail="Invalid payload"
         )
 
     reference = str(uuid.uuid4())
@@ -156,7 +178,7 @@ def paystack_init(payload: Dict[str, Any]):
         logger.error("❌ Paystack init failed: %s", response.text)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Paystack initialization failed",
+            detail="Paystack initialization failed"
         )
 
     conn = get_db()
@@ -176,7 +198,7 @@ def paystack_init(payload: Dict[str, Any]):
     return response.json()["data"]
 
 # -------------------------------------------------
-# PAYSTACK WEBHOOK (SECURE + VERIFIED)
+# PAYSTACK WEBHOOK
 # -------------------------------------------------
 @app.post("/paystack/webhook", status_code=status.HTTP_200_OK)
 async def paystack_webhook(request: Request):
@@ -186,7 +208,7 @@ async def paystack_webhook(request: Request):
     if not signature:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Missing Paystack signature",
+            detail="Missing Paystack signature"
         )
 
     expected_signature = hmac.new(
@@ -198,7 +220,7 @@ async def paystack_webhook(request: Request):
     if not hmac.compare_digest(signature, expected_signature):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid Paystack signature",
+            detail="Invalid Paystack signature"
         )
 
     event = json.loads(raw_body)
@@ -236,5 +258,4 @@ async def paystack_webhook(request: Request):
         conn.close()
 
     logger.info("✅ Creator %s upgraded to PRO", telegram_id)
-
     return {"status": "upgraded"}
