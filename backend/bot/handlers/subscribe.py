@@ -4,7 +4,7 @@ import httpx
 import asyncio
 from typing import Optional
 
-from telegram import Update
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 
 logger = logging.getLogger(__name__)
@@ -12,20 +12,18 @@ logger = logging.getLogger(__name__)
 # -------------------------------------------------
 # CONFIG
 # -------------------------------------------------
-PRO_AMOUNT_KOBO = 1_000_000  # ₦10,000 one-time
+PRO_AMOUNT_KOBO = 1_000_000   # ₦10,000 one-time
+ELITE_BASE_FEE_KOBO = 2_500_000  # ₦25,000 per package (editable)
 
-# Public backend URL (Render)
 PUBLIC_BACKEND_URL = "https://creator-monetization.onrender.com"
-
-# Optional local override (useful for dev)
 BASE_URL = os.getenv("BASE_URL")
 
 
 def get_backend_url() -> str:
     """
     Determines correct backend URL priority:
-    1. Explicit BASE_URL if provided
-    2. Render public URL when RENDER=true
+    1. Explicit BASE_URL if provided (local/override)
+    2. Render public URL if RENDER=true
     3. Local fallback for development
     """
     if BASE_URL:
@@ -64,24 +62,46 @@ async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not message:
         return
 
+    keyboard = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🚀 Upgrade to PRO (₦10,000)", callback_data="upgrade_pro")],
+            [InlineKeyboardButton("📦 ELITE Deal Packaging (₦25,000)", callback_data="elite_package")],
+        ]
+    )
+
     await safe_reply(
         message,
-        "🔓 *Upgrade to PRO Creator*\n\n"
-        "PRO shows you *how to turn your reach into income*.\n\n"
-        "🧠 *What PRO unlocks (delivered within 24 hours):*\n"
-        "• Market Positioning Blueprint\n"
-        "• Brand Deal Reply Scripts\n"
+        "🔥 *Creator Monetization Tiers*\n\n"
+        "Choose your current monetization path:\n\n"
+        "🆓 *FREE*\n"
+        "• Pricing Insights Only\n"
+        "• Followers/View Benchmarking\n\n"
+        "💼 *PRO — ₦10,000 one-time*\n"
+        "• Monetization Toolkit\n"
+        "• Brand Deal Scripts\n"
         "• Negotiation Playbook\n"
-        "• Pricing Mistakes to Avoid\n"
-        "• Campaign Bundling Strategy\n"
-        "• Professional Brand Language\n\n"
-        "💳 *₦10,000 one-time*\n\n"
-        "👉 *Next step:* Type `pay` to continue.",
+        "• Positioning Blueprint\n"
+        "• Campaign Bundling Strategy\n\n"
+        "🏛 *ELITE — ₦25,000 per package*\n"
+        "• Done-For-You Brand Deal Packaging\n"
+        "• Market-ready Deliverables\n"
+        "• Baseline Pricing + Usage Rights\n"
+        "• Whitelisting/UGC Positioning\n"
+        "• Pitch-ready for Brands/Agencies\n\n"
+        "👇 Select an option to continue:",
+        parse_mode="Markdown",
+        disable_web_page_preview=True,
+    )
+
+    await message.reply_text(
+        "Need help choosing?\nJust type: `help tiers`",
+        parse_mode="Markdown",
+        reply_markup=keyboard
     )
 
 
 # -------------------------------------------------
-# /pay COMMAND
+# /pay COMMAND (PRO BILLING)
 # -------------------------------------------------
 async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
@@ -106,9 +126,6 @@ async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.info(f"[PAY] Init → {payment_init_url}")
 
-    # -------------------------------------------------
-    # RETRY LOGIC FOR RENDER COLD START / RESTART
-    # -------------------------------------------------
     raw = None
     for attempt in range(3):
         try:
@@ -116,7 +133,7 @@ async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 resp = await client.post(payment_init_url, json=payload)
                 resp.raise_for_status()
                 raw = resp.json()
-                break  # success → exit loop
+                break
 
         except Exception as e:
             logger.warning(f"[PAY] Attempt {attempt+1}/3 failed → {e}")
@@ -130,9 +147,7 @@ async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
 
-    # -------------------------------------------------
-    # NORMALIZE PAYSTACK RESPONSE
-    # -------------------------------------------------
+    # Normalize Paystack response
     if isinstance(raw, dict):
         if "authorization_url" in raw:
             auth_url = raw["authorization_url"]

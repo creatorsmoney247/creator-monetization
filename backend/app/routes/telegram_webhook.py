@@ -39,6 +39,8 @@ from bot.handlers.status import status
 from bot.handlers.text_router import text_router
 from bot.handlers.callbacks_platform import platform_selected
 from bot.callbacks_niche import niche_selected
+from bot.handlers.elite_package import elite_package_start, elite_package_step
+
 
 # -------------------------------------------------
 # REGISTER CALLBACK HANDLERS
@@ -49,6 +51,11 @@ telegram_app.add_handler(
 telegram_app.add_handler(
     CallbackQueryHandler(niche_selected, pattern=r"^niche_")
 )
+
+telegram_app.add_handler(
+    CallbackQueryHandler(elite_package_start, pattern=r"^elite_package")
+)
+
 
 # -------------------------------------------------
 # REGISTER BOT COMMANDS

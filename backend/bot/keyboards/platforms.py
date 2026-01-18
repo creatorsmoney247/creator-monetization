@@ -7,7 +7,7 @@ def platform_keyboard():
             InlineKeyboardButton("TikTok", callback_data="platform_tiktok"),
         ],
         [
-            InlineKeyboardButton("YouTube Shorts", callback_data="platform_ytshorts"),
+            InlineKeyboardButton("YouTube Shorts", callback_data="platform_youtube"),
             InlineKeyboardButton("Twitter", callback_data="platform_twitter"),
         ],
         [

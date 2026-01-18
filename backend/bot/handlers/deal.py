@@ -74,7 +74,7 @@ async def deal_script(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
         await message.reply_text(
             "🔒 *PRO Required*\n\n"
-            "Brand deal scripts unlock **only after upgrading**.\n\n"
+            "Your PRO monetization toolkit unlocks only after upgrading."
             "Tap below to continue 👇",
             reply_markup=keyboard,
             parse_mode="Markdown",
@@ -93,7 +93,7 @@ async def deal_script(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     user_data["step"] = "email"
 
     await message.reply_text(
-        "📝 *PRO Brand Deal Setup*\n\n"
+        "📝 *PRO Onboarding – Creator Monetization Toolkit*"
         "📧 *Enter your email address:*",
         parse_mode="Markdown",
     )
