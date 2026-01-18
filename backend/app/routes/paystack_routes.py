@@ -15,7 +15,7 @@ router = APIRouter(prefix="/paystack", tags=["paystack"])
 
 
 # -------------------------------------------------
-# ENV (BACKEND ONLY)
+# ENV
 # -------------------------------------------------
 def get_required_env(name: str) -> str:
     value = os.getenv(name)
@@ -23,13 +23,12 @@ def get_required_env(name: str) -> str:
         raise RuntimeError(f"❌ Missing required env var: {name}")
     return value
 
-
 PAYSTACK_SECRET_KEY = get_required_env("PAYSTACK_SECRET_KEY")
 DATABASE_URL = get_required_env("DATABASE_URL")
 
 
 # -------------------------------------------------
-# DB (SUPABASE / POSTGRES)
+# DB HELPERS
 # -------------------------------------------------
 def get_db():
     return psycopg2.connect(
@@ -42,45 +41,70 @@ def get_db():
 # -------------------------------------------------
 # INIT PAYMENT
 # -------------------------------------------------
-from app.services.paystack_service import init_paystack_payment
-
-
 @router.post("/init")
 def init_payment(payload: Dict[str, Any]):
     """
-    Initialize Paystack payment session.
+    Initialize Paystack PRO subscription payment.
     """
 
-    # --- Extract fields safely ---
     email = payload.get("email")
-    raw_amount = payload.get("amount")
-    meta = payload.get("metadata", {}) or {}
-    telegram_id = meta.get("telegram_id")
+    amount = payload.get("amount")
+    telegram_id = payload.get("telegram_id")
 
-    # --- Validate required fields ---
-    if email is None or not isinstance(email, str):
-        raise HTTPException(status_code=400, detail="Invalid or missing email")
+    if not email or not isinstance(email, str):
+        raise HTTPException(400, "Missing or invalid email")
+
+    if amount is None:
+        raise HTTPException(400, "Missing amount")
 
     if telegram_id is None:
-        raise HTTPException(status_code=400, detail="Invalid or missing telegram_id")
-
-    # --- Validate amount type ---
-    if raw_amount is None:
-        raise HTTPException(status_code=400, detail="Missing amount")
+        raise HTTPException(400, "Missing telegram_id")
 
     try:
-        amount = int(raw_amount)
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=400, detail="Invalid amount")
+        amount = int(amount)
+    except:
+        raise HTTPException(400, "Invalid amount")
 
-    # --- Call paystack service ---
+    reference = str(uuid.uuid4())
+
+    resp = requests.post(
+        "https://api.paystack.co/transaction/initialize",
+        headers={
+            "Authorization": f"Bearer {PAYSTACK_SECRET_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "email": email,
+            "amount": amount,
+            "reference": reference,
+            "metadata": {
+                "telegram_id": str(telegram_id),
+                "plan": "PRO"  # <---- important
+            },
+        },
+        timeout=15,
+    )
+
+    if not resp.ok:
+        logger.error("Paystack init failed: %s", resp.text)
+        raise HTTPException(400, "Paystack init failed")
+
+    # Store pending payment
+    conn = get_db()
     try:
-        url = init_paystack_payment(email, amount, str(telegram_id))
-    except Exception as e:
-        logger.error(f"Paystack init failed → {e}")
-        raise HTTPException(status_code=503, detail="Payment init failed, try again later")
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO payments (reference, telegram_id, amount, plan, status)
+            VALUES (%s, %s, %s, %s, 'pending')
+            """,
+            (reference, str(telegram_id), amount, "PRO"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
-    return {"authorization_url": url}
+    return resp.json().get("data", {})
 
 
 # -------------------------------------------------
@@ -89,84 +113,76 @@ def init_payment(payload: Dict[str, Any]):
 @router.post("/webhook")
 async def paystack_webhook(request: Request):
     """
-    Handle Paystack charge.success webhook.
+    Handle Paystack charge.success webhook for PRO monthly.
     """
+
     raw_body = await request.body()
     signature = request.headers.get("x-paystack-signature")
 
     if not signature:
-        raise HTTPException(status_code=400, detail="Missing Paystack signature")
+        raise HTTPException(400, "Missing Paystack signature")
 
     expected = hmac.new(
         PAYSTACK_SECRET_KEY.encode(),
         raw_body,
-        hashlib.sha512,
+        hashlib.sha512
     ).hexdigest()
 
-    if not hmac.compare_digest(signature, expected):
-        raise HTTPException(status_code=400, detail="Invalid Paystack signature")
+    if not hmac.compare_digest(expected, signature):
+        raise HTTPException(400, "Invalid Paystack signature")
 
     try:
         payload = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+    except:
+        raise HTTPException(400, "Invalid JSON")
 
     if payload.get("event") != "charge.success":
         return {"status": "ignored"}
 
     data = payload.get("data") or {}
+    metadata = data.get("metadata") or {}
+
     reference = data.get("reference")
-    metadata = data.get("metadata", {}) or {}
     telegram_id = metadata.get("telegram_id")
+    plan = metadata.get("plan")
 
     if not reference or not telegram_id:
-        logger.warning("Webhook missing reference or telegram_id")
-        return {"status": "invalid"}
+        logger.warning("Webhook missing fields")
+        return {"status": "ignored"}
 
-    conn = None
+    conn = get_db()
     try:
-        conn = get_db()
         cur = conn.cursor()
 
-        # Mark payment as successful
+        # Mark as success
         cur.execute(
-            "UPDATE payments SET status='success' WHERE reference=%s",
+            "UPDATE payments SET status='success', paid_at=CURRENT_TIMESTAMP WHERE reference=%s",
             (reference,),
         )
 
-        # Unlock PRO
-        cur.execute("""
-            INSERT INTO creators (
-                telegram_id,
-                is_pro,
-                pro_activated_at,
-                pro_expires_at,
-                whitelisting_enabled
+        if plan == "PRO":
+            # 30-day subscription
+            cur.execute(
+                """
+                INSERT INTO creators (telegram_id, is_pro, pro_activated_at, pro_expires_at)
+                VALUES (%s, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '30 days')
+                ON CONFLICT (telegram_id)
+                DO UPDATE SET
+                    is_pro = TRUE,
+                    pro_activated_at = CURRENT_TIMESTAMP,
+                    pro_expires_at = CURRENT_TIMESTAMP + INTERVAL '30 days'
+                """,
+                (str(telegram_id),)
             )
-            VALUES (%s, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '365 days', TRUE)
-            ON CONFLICT (telegram_id)
-            DO UPDATE SET
-                is_pro=1,
-                pro_activated_at=CURRENT_TIMESTAMP,
-                pro_expires_at=CURRENT_TIMESTAMP + INTERVAL '365 days',
-                whitelisting_enabled=TRUE;
-        """, (str(telegram_id),))
-
-        cur.execute(
-            "UPDATE payments SET status='success', paid_at=CURRENT_TIMESTAMP WHERE reference=%s",
-            (reference,)
-        )
-
 
         conn.commit()
 
     except Exception as e:
-        logger.error(f"Webhook DB error → {e}")
-        if conn:
-            conn.rollback()
-        raise HTTPException(status_code=500, detail="Internal Error")
-    finally:
-        if conn:
-            conn.close()
+        logger.error(f"Webhook DB error: {e}")
+        conn.rollback()
+        raise HTTPException(500, "Internal Error")
 
-    return {"status": "upgraded"}
+    finally:
+        conn.close()
+
+    return {"status": "subscription_active", "plan": plan}

@@ -1,27 +1,23 @@
-# backend/app/services/hybrid_pricing_engine.py
-
 from typing import Optional, Dict, Any
 
-
 # ---------------------------------------------
-# GLOBAL CPM RANGES (USD) — Mixed/Auto Mode
-# midpoints will be used for pricing
+# GLOBAL CPM RANGES (USD) — Midpoints used
 # ---------------------------------------------
 PLATFORM_CPM_USD = {
     "instagram":  (12, 30),   # high value platform
-    "tiktok":     (8, 18),    # mid-range CPM
-    "youtube":    (15, 40),   # premium CPM
-    "twitter":    (4, 10),    # lower CPM historically
+    "tiktok":     (4, 10),    # lower CPM
+    "youtube":    (18, 45),   # premium CPM
+    "twitter":    (2, 6),     # very low CPM historically (X)
     "facebook":   (6, 14),    # dependable mid-range CPM
 }
 
 # ---------------------------------------------
-# NICHE MULTIPLIERS — Interest/Conversion strength
+# NICHE MULTIPLIERS — Conversion Strength
 # ---------------------------------------------
 NICHE_MULT = {
-    "tech":        2.5,
-    "business":    2.3,
-    "finance":     2.8,
+    "tech":        2.4,
+    "business":    2.2,
+    "finance":     3.0,
     "beauty":      2.0,
     "gaming":      1.8,
     "fitness":     1.6,
@@ -34,15 +30,15 @@ NICHE_MULT = {
 # ---------------------------------------------
 # FOLLOWER FLOOR PRICING (NGN)
 # ---------------------------------------------
-FLOOR_NGN_PER_10K = 100_000  # 100K NGN per 10K followers
+FLOOR_NGN_PER_10K = 120_000  # updated to modern Nigeria creator rates
 
 # ---------------------------------------------
-# AFRICA MARKET DISCOUNT (Mixed/Auto)
+# AFRICA MARKET DISCOUNT (CPM normalizing)
 # ---------------------------------------------
-AFRICA_DISCOUNT = 0.45  # ~45% lower advertiser CPM budgets
+AFRICA_DISCOUNT = 0.55  # Africa CPM ~45–60% lower than US/EU
 
 # ---------------------------------------------
-# USAGE MULTIPLIERS (PRO unlocks controls)
+# USAGE MULTIPLIERS (PRO unlocks control)
 # ---------------------------------------------
 USAGE_MULT = {
     3: 2.0,   # 3 months
@@ -53,7 +49,7 @@ USAGE_MULT = {
 # ---------------------------------------------
 # WHITELISTING MULTIPLIER (PRO only)
 # ---------------------------------------------
-WHITELIST_MULT = 2.0
+WHITELIST_MULT = 2.2
 
 # ---------------------------------------------
 # FX RATE (Static for now)
@@ -69,46 +65,38 @@ def hybrid_pricing_engine(
     niche: str,
     is_pro: bool
 ) -> Dict[str, Any]:
-    """
-    Hybrid Pricing Engine (Mixed/Auto model)
-
-    Supports:
-    - Full stats (followers + views + engagement)
-    - Followers-only
-    - Views-only
-    """
 
     platform = (platform or "").lower()
     niche = (niche or "").lower()
 
-    # CPM midpoint
+    # ---- 1. CPM Midpoint ----
     if platform in PLATFORM_CPM_USD:
         low, high = PLATFORM_CPM_USD[platform]
-        cpm_usd = (low + high) / 2.0
+        cpm_usd = (low + high) / 2.0   # midpoint
     else:
-        cpm_usd = 10  # sensible fallback
+        cpm_usd = 10  # fallback
 
-    # Apply Africa discount since bot is currently NGN-facing
-    cpm_usd_africa = cpm_usd * AFRICA_DISCOUNT
+    # CPM Africa normalization
+    cpm_usd_local = cpm_usd * AFRICA_DISCOUNT
 
-    # Niche multiplier
+    # ---- 2. Niche Multiplier ----
     niche_mult = NICHE_MULT.get(niche, 1.0)
 
-    # Followers floor price (NGN)
+    # ---- 3. Followers Floor (NGN) ----
     floor_ngn = 0
     if followers:
         floor_ngn = (followers / 10_000) * FLOOR_NGN_PER_10K
 
-    # Views valuation (USD → NGN) with niche multiplier
+    # ---- 4. Views Valuation (USD → NGN) ----
     views_ngn = 0
     if avg_views:
-        base_usd = (avg_views / 1000) * cpm_usd_africa  # USD
-        niche_usd = base_usd * niche_mult               # USD
-        views_ngn = niche_usd * USD_TO_NGN              # NGN
+        base_usd = (avg_views / 1000) * cpm_usd_local
+        niche_usd = base_usd * niche_mult
+        views_ngn = niche_usd * USD_TO_NGN
 
-    # Determine mode
+    # ---- 5. Hybrid Mode ----
     if followers and avg_views and engagement:
-        mode = "full"  # full hybrid mode
+        mode = "full"
         base_value_ngn = max(views_ngn, floor_ngn)
 
     elif followers and not avg_views:
@@ -120,32 +108,27 @@ def hybrid_pricing_engine(
         base_value_ngn = views_ngn
 
     else:
-        mode = "unknown"
-        return {
-            "error": "insufficient_data",
-            "mode": mode
-        }
+        return {"error": "insufficient_data", "mode": "unknown"}
 
-    # Apply default usage rights (3 months for FREE)
+    # ---- 6. Usage Rights (Default 3 months) ----
     usage_months = 3
     usage_mult = USAGE_MULT.get(usage_months, 2.0)
     ngn_with_usage = base_value_ngn * usage_mult
 
-    # PRO whitelisting
+    # ---- 7. PRO Whitelisting ----
     if is_pro:
         ngn_whitelist = ngn_with_usage * WHITELIST_MULT
     else:
         ngn_whitelist = None
 
-    # Convert to USD for PRO users only (Dual display)
+    # ---- 8. USD Dual Display ----
     usd_recommended = ngn_with_usage / USD_TO_NGN
-    usd_whitelist = None
-    if is_pro and ngn_whitelist:
-        usd_whitelist = ngn_whitelist / USD_TO_NGN
+    usd_whitelist = (ngn_whitelist / USD_TO_NGN) if (is_pro and ngn_whitelist) else None
 
-    # Minimum acceptable = 50% of recommended floor
-    ngn_minimum = ngn_with_usage * 0.5
+    # ---- 9. Minimum Acceptable ----
+    ngn_minimum = ngn_with_usage * 0.50
 
+    # ---- 10. Response ----
     return {
         "mode": mode,
         "platform": platform,
