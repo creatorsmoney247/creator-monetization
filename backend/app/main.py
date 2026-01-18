@@ -5,77 +5,75 @@ import json
 import hmac
 import hashlib
 import logging
-import uuid
 from typing import Dict, Any
 
-import requests
 import psycopg2
 from fastapi import FastAPI, Request, HTTPException
-from telegram.constants import ParseMode
 
 from .db_auto_migrate import run_migrations
+
+# Telegram Webhook Router + App
 from app.routes.telegram_webhook import router as telegram_router
 from app.routes.telegram_webhook import telegram_app
 
-# Routers
-from app.routes.pricing import router as pricing_router   # <--- NEW (Dedicated Pricing Router)
-from app.routes.paystack_routes import router as paystack_router   # <--- OPTIONAL if you split out Paystack
+# Sub-routers
+from app.routes.pricing import router as pricing_router
+from app.routes.paystack_routes import router as paystack_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("creator-backend")
 
 
-# ------------------------------------------------------------
-# ENVIRONMENT HELPERS
-# ------------------------------------------------------------
+# ============================================================
+# ENVIRONMENT
+# ============================================================
 def get_required_env(name: str) -> str:
     value = os.getenv(name)
     if not value or not value.strip():
         raise RuntimeError(f"❌ Missing required env var: {name}")
     return value
 
-
 DATABASE_URL = get_required_env("DATABASE_URL")
 PAYSTACK_SECRET_KEY = get_required_env("PAYSTACK_SECRET_KEY")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Optional, for production bot webhook
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # optional
 
 
-# ------------------------------------------------------------
-# DATABASE CONNECTION
-# ------------------------------------------------------------
+# ============================================================
+# DB CONNECTION (Supabase / Render)
+# ============================================================
 def get_db():
     return psycopg2.connect(
         DATABASE_URL,
-        sslmode="require",
-        connect_timeout=5,
+        sslmode="require",      # Supabase requires SSL
+        connect_timeout=5,      # Render protection
     )
 
 
-# ------------------------------------------------------------
-# FASTAPI APP
-# ------------------------------------------------------------
+# ============================================================
+# FASTAPI APPLICATION
+# ============================================================
 app = FastAPI(
-    title="Creator Monetization API",
+    title="Creator Monetization Backend",
     version="2.0.0",
-    description="Telegram Creator Monetization Backend (Hybrid Pricing + PRO + Paystack)"
+    description="Hybrid Pricing Engine + Telegram Bot + Paystack"
 )
 
 
-# ------------------------------------------------------------
-# LIFECYCLE EVENTS
-# ------------------------------------------------------------
+# ============================================================
+# APPLICATION STARTUP
+# ============================================================
 @app.on_event("startup")
 async def startup_event():
     logger.info("🚀 Backend starting up...")
 
-    # Migrations
+    # 1) DATABASE MIGRATIONS
     try:
         run_migrations()
         logger.info("🛠 DB migrations complete")
     except Exception as e:
         logger.error(f"❌ Migration error: {e}")
 
-    # Telegram Bot Init
+    # 2) TELEGRAM BOT INITIALIZATION
     try:
         await telegram_app.initialize()
 
@@ -92,26 +90,34 @@ async def startup_event():
         logger.error(f"❌ Telegram init failed: {e}")
 
 
+# ============================================================
+# APPLICATION SHUTDOWN
+# ============================================================
 @app.on_event("shutdown")
 async def shutdown_event():
     try:
         await telegram_app.shutdown()
-        logger.info("🛑 Telegram bot shutdown")
+        logger.info("🛑 Telegram bot shutdown complete")
     except Exception as e:
         logger.error(f"❌ Telegram shutdown failed: {e}")
 
 
-# ------------------------------------------------------------
-# ROUTER REGISTRATION
-# ------------------------------------------------------------
+# ============================================================
+# ROUTERS
+# ============================================================
+# Telegram incoming webhook
 app.include_router(telegram_router)
+
+# Pricing Microservice
 app.include_router(pricing_router)
-app.include_router(paystack_router)    # If using paystack_routes.py
+
+# Paystack Init API (if using /paystack/init externally)
+app.include_router(paystack_router)
 
 
-# ------------------------------------------------------------
-# HEALTH + STATUS ENDPOINTS
-# ------------------------------------------------------------
+# ============================================================
+# HEALTHCHECKS
+# ============================================================
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "creator-backend"}
@@ -127,9 +133,9 @@ def db_test():
         return {"db": "error", "detail": str(e)}
 
 
-# ------------------------------------------------------------
-# PAYSTACK WEBHOOK HANDLER (ENHANCED)
-# ------------------------------------------------------------
+# ============================================================
+# PAYSTACK WEBHOOK (UPGRADES CREATOR TO PRO)
+# ============================================================
 @app.post("/paystack/webhook")
 async def paystack_webhook(request: Request):
     raw_body = await request.body()
@@ -138,36 +144,42 @@ async def paystack_webhook(request: Request):
     if not signature:
         raise HTTPException(status_code=400, detail="Missing Paystack signature")
 
-    expected_signature = hmac.new(
+    expected = hmac.new(
         PAYSTACK_SECRET_KEY.encode(),
         raw_body,
-        hashlib.sha512,
+        hashlib.sha512
     ).hexdigest()
 
-    if not hmac.compare_digest(signature, expected_signature):
+    if not hmac.compare_digest(signature, expected):
         raise HTTPException(status_code=400, detail="Invalid Paystack signature")
 
     event = json.loads(raw_body)
 
+    # We only care about actual charge successes
     if event.get("event") != "charge.success":
-        logger.info("📩 Non-success webhook received, ignoring.")
+        logger.info("📨 Non-billing webhook received — ignored.")
         return {"status": "ignored"}
 
-    data = event["data"]
-    reference = data["reference"]
-    telegram_id = str(data["metadata"]["telegram_id"])
+    data = event.get("data", {})
+    reference = data.get("reference")
+    meta = data.get("metadata", {}) or {}
+    telegram_id = str(meta.get("telegram_id"))
+
+    if not reference or not telegram_id:
+        logger.error("❌ Webhook missing reference or telegram_id")
+        return {"status": "invalid"}
 
     conn = get_db()
     try:
         cur = conn.cursor()
 
-        # Mark payment as complete
+        # Update payment status
         cur.execute(
             "UPDATE payments SET status='success', paid_at=CURRENT_TIMESTAMP WHERE reference=%s",
             (reference,),
         )
 
-        # Apply PRO Upgrade
+        # Activate PRO
         cur.execute(
             """
             INSERT INTO creators (telegram_id, is_pro, pro_activated_at, pro_expires_at, whitelisting_enabled)
@@ -183,16 +195,15 @@ async def paystack_webhook(request: Request):
         )
 
         conn.commit()
-
     except Exception as e:
-        logger.error(f"❌ Webhook DB error: {e}")
+        logger.error(f"❌ Webhook DB error → {e}")
         try:
             conn.rollback()
         except:
             pass
-        raise HTTPException(status_code=500, detail="Internal webhook error")
+        raise HTTPException(status_code=500, detail="Internal Error")
     finally:
         conn.close()
 
-    logger.info(f"🎉 Creator {telegram_id} upgraded to PRO via Paystack reference {reference}")
+    logger.info(f"🎉 PRO Activated for Telegram User {telegram_id} (Ref: {reference})")
     return {"status": "upgraded", "telegram_id": telegram_id}

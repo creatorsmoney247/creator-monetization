@@ -18,22 +18,16 @@ ELITE_BASE_FEE_KOBO = 2_500_000  # ₦25,000 per package (editable)
 PUBLIC_BACKEND_URL = "https://creator-monetization.onrender.com"
 BASE_URL = os.getenv("BASE_URL")
 
-
 def get_backend_url() -> str:
     """
-    Determines correct backend URL priority:
-    1. Explicit BASE_URL if provided (local/override)
-    2. Render public URL if RENDER=true
-    3. Local fallback for development
+    Final production-only backend resolution:
+    1) BASE_URL if provided via Render env
+    2) Fallback to PUBLIC_BACKEND_URL
     """
-    if BASE_URL:
-        return BASE_URL.rstrip("/")
-
-    if os.getenv("RENDER") == "true":
-        return PUBLIC_BACKEND_URL
-
-    return "http://127.0.0.1:8000"
-
+    if BASE_URL and BASE_URL.strip():
+        return BASE_URL.strip().rstrip("/")
+    
+    return PUBLIC_BACKEND_URL
 
 # -------------------------------------------------
 # SAFE REPLY
