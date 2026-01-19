@@ -33,6 +33,17 @@ NICHE_MULT = {
 FLOOR_NGN_PER_10K = 120_000  # updated to modern Nigeria creator rates
 
 # ---------------------------------------------
+# PLATFORM FLOOR MULTIPLIERS (Differentiation)
+# ---------------------------------------------
+FLOOR_PLATFORM_MULT = {
+    "instagram": 1.0,
+    "tiktok":    0.75,
+    "youtube":   1.35,   # YouTube commands stronger brand budgets
+    "twitter":   0.50,
+    "facebook":  0.65,
+}
+
+# ---------------------------------------------
 # AFRICA MARKET DISCOUNT (CPM normalizing)
 # ---------------------------------------------
 AFRICA_DISCOUNT = 0.55  # Africa CPM ~45–60% lower than US/EU
@@ -76,7 +87,7 @@ def hybrid_pricing_engine(
     else:
         cpm_usd = 10  # fallback
 
-    # CPM Africa normalization
+    # Apply Africa CPM normalization
     cpm_usd_local = cpm_usd * AFRICA_DISCOUNT
 
     # ---- 2. Niche Multiplier ----
@@ -85,7 +96,9 @@ def hybrid_pricing_engine(
     # ---- 3. Followers Floor (NGN) ----
     floor_ngn = 0
     if followers:
-        floor_ngn = (followers / 10_000) * FLOOR_NGN_PER_10K
+        base_floor = (followers / 10_000) * FLOOR_NGN_PER_10K
+        floor_mult = FLOOR_PLATFORM_MULT.get(platform, 1.0)
+        floor_ngn = base_floor * floor_mult
 
     # ---- 4. Views Valuation (USD → NGN) ----
     views_ngn = 0
