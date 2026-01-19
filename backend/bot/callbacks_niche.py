@@ -120,6 +120,11 @@ async def generate_pricing(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> 
         await context.bot.send_message(chat_id, f"⚠️ Backend pricing error: {e}")
         return
 
+    # ---- BACKEND ERROR HANDLING ----
+    if result.get("error"):
+        await context.bot.send_message(chat_id, "⚠️ Not enough data to compute pricing. Provide followers or avg views.")
+        return
+
     mode = result.get("mode", "unknown")
     min_ngn = result.get("min")
     mid_ngn = result.get("mid")
