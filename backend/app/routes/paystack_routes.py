@@ -1,3 +1,5 @@
+# backend/app/routes/paystack_routes.py
+
 import os
 import uuid
 import hmac
@@ -39,34 +41,59 @@ def get_db():
 
 
 # -------------------------------------------------
-# INIT PAYMENT
+# INIT PAYMENT (Supports Bot Payload)
 # -------------------------------------------------
 @router.post("/init")
 def init_payment(payload: Dict[str, Any]):
     """
     Initialize Paystack PRO subscription payment.
+    Supports:
+        {email, amount, telegram_id}
+        {email, amount, metadata: {telegram_id}}
     """
 
+    # ------------------------------
+    # Extract Email
+    # ------------------------------
     email = payload.get("email")
-    amount = payload.get("amount")
-    telegram_id = payload.get("telegram_id")
-
     if not email or not isinstance(email, str):
         raise HTTPException(400, "Missing or invalid email")
 
+    # ------------------------------
+    # Extract Amount
+    # ------------------------------
+    amount = payload.get("amount")
     if amount is None:
         raise HTTPException(400, "Missing amount")
-
-    if telegram_id is None:
-        raise HTTPException(400, "Missing telegram_id")
 
     try:
         amount = int(amount)
     except:
         raise HTTPException(400, "Invalid amount")
 
+    # ------------------------------
+    # Extract Telegram ID (2 compatible formats)
+    # ------------------------------
+    telegram_id = payload.get("telegram_id")
+
+    if telegram_id is None:
+        # fallback to metadata.telegram_id
+        metadata = payload.get("metadata") or {}
+        telegram_id = metadata.get("telegram_id")
+
+    if telegram_id is None:
+        raise HTTPException(400, "Missing telegram_id")
+
+    telegram_id = str(telegram_id)
+
+    # ------------------------------
+    # Generate Unique Reference
+    # ------------------------------
     reference = str(uuid.uuid4())
 
+    # ------------------------------
+    # Initialize Paystack
+    # ------------------------------
     resp = requests.post(
         "https://api.paystack.co/transaction/initialize",
         headers={
@@ -78,18 +105,23 @@ def init_payment(payload: Dict[str, Any]):
             "amount": amount,
             "reference": reference,
             "metadata": {
-                "telegram_id": str(telegram_id),
-                "plan": "PRO"  # <---- important
+                "telegram_id": telegram_id,
+                "plan": "PRO"
             },
         },
         timeout=15,
     )
 
     if not resp.ok:
-        logger.error("Paystack init failed: %s", resp.text)
+        logger.error("❌ Paystack init failed: %s", resp.text)
         raise HTTPException(400, "Paystack init failed")
 
-    # Store pending payment
+    body = resp.json()
+    data = body.get("data") or {}
+
+    # ------------------------------
+    # Store Pending Payment in DB
+    # ------------------------------
     conn = get_db()
     try:
         cur = conn.cursor()
@@ -98,24 +130,23 @@ def init_payment(payload: Dict[str, Any]):
             INSERT INTO payments (reference, telegram_id, amount, plan, status)
             VALUES (%s, %s, %s, %s, 'pending')
             """,
-            (reference, str(telegram_id), amount, "PRO"),
+            (reference, telegram_id, amount, "PRO"),
         )
         conn.commit()
     finally:
         conn.close()
 
-    return resp.json().get("data", {})
+    return {
+        "authorization_url": data.get("authorization_url"),
+        "reference": reference,
+    }
 
 
 # -------------------------------------------------
-# PAYSTACK WEBHOOK
+# PAYSTACK WEBHOOK (Handles charge.success)
 # -------------------------------------------------
 @router.post("/webhook")
 async def paystack_webhook(request: Request):
-    """
-    Handle Paystack charge.success webhook for PRO monthly.
-    """
-
     raw_body = await request.body()
     signature = request.headers.get("x-paystack-signature")
 
@@ -154,14 +185,14 @@ async def paystack_webhook(request: Request):
     try:
         cur = conn.cursor()
 
-        # Mark as success
+        # Mark payment as success
         cur.execute(
             "UPDATE payments SET status='success', paid_at=CURRENT_TIMESTAMP WHERE reference=%s",
             (reference,),
         )
 
+        # Enable PRO for 30 days
         if plan == "PRO":
-            # 30-day subscription
             cur.execute(
                 """
                 INSERT INTO creators (telegram_id, is_pro, pro_activated_at, pro_expires_at)
@@ -172,7 +203,7 @@ async def paystack_webhook(request: Request):
                     pro_activated_at = CURRENT_TIMESTAMP,
                     pro_expires_at = CURRENT_TIMESTAMP + INTERVAL '30 days'
                 """,
-                (str(telegram_id),)
+                (telegram_id,)
             )
 
         conn.commit()
