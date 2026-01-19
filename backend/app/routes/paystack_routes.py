@@ -47,53 +47,40 @@ def get_db():
 def init_payment(payload: Dict[str, Any]):
     """
     Initialize Paystack PRO subscription payment.
-    Supports:
-        {email, amount, telegram_id}
-        {email, amount, metadata: {telegram_id}}
+
+    Accepts:
+    - Legacy mode: { email, amount, metadata.telegram_id }
+    - PRO mode:    { telegram_id }
     """
 
-    # ------------------------------
-    # Extract Email
-    # ------------------------------
-    email = payload.get("email")
-    if not email or not isinstance(email, str):
-        raise HTTPException(400, "Missing or invalid email")
-
-    # ------------------------------
-    # Extract Amount
-    # ------------------------------
-    amount = payload.get("amount")
-    if amount is None:
-        raise HTTPException(400, "Missing amount")
-
-    try:
-        amount = int(amount)
-    except:
-        raise HTTPException(400, "Invalid amount")
-
-    # ------------------------------
-    # Extract Telegram ID (2 compatible formats)
-    # ------------------------------
     telegram_id = payload.get("telegram_id")
 
-    if telegram_id is None:
-        # fallback to metadata.telegram_id
+    # -----------------------
+    # MODE 1: PRO CALLBACK
+    # -----------------------
+    if telegram_id:
+        email = f"user{telegram_id}@gmail.com"
+        amount = 1_000_000  # ₦10,000 one-time PRO
+        plan = "PRO"
+        reference = str(uuid.uuid4())
+
+    # -----------------------
+    # MODE 2: LEGACY BOT /pay
+    # -----------------------
+    else:
+        email = payload.get("email")
+        amount = payload.get("amount")
         metadata = payload.get("metadata") or {}
         telegram_id = metadata.get("telegram_id")
+        plan = "LEGACY"
+        reference = str(uuid.uuid4())
 
-    if telegram_id is None:
-        raise HTTPException(400, "Missing telegram_id")
+        if not email or not telegram_id or not amount:
+            raise HTTPException(400, "Missing email, telegram_id or amount")
 
-    telegram_id = str(telegram_id)
-
-    # ------------------------------
-    # Generate Unique Reference
-    # ------------------------------
-    reference = str(uuid.uuid4())
-
-    # ------------------------------
-    # Initialize Paystack
-    # ------------------------------
+    # -----------------------
+    # Paystack call
+    # -----------------------
     resp = requests.post(
         "https://api.paystack.co/transaction/initialize",
         headers={
@@ -105,23 +92,20 @@ def init_payment(payload: Dict[str, Any]):
             "amount": amount,
             "reference": reference,
             "metadata": {
-                "telegram_id": telegram_id,
-                "plan": "PRO"
+                "telegram_id": str(telegram_id),
+                "plan": plan
             },
         },
         timeout=15,
     )
 
     if not resp.ok:
-        logger.error("❌ Paystack init failed: %s", resp.text)
+        logger.error("Paystack init failed: %s", resp.text)
         raise HTTPException(400, "Paystack init failed")
 
-    body = resp.json()
-    data = body.get("data") or {}
-
-    # ------------------------------
-    # Store Pending Payment in DB
-    # ------------------------------
+    # -----------------------
+    # DB INSERT
+    # -----------------------
     conn = get_db()
     try:
         cur = conn.cursor()
@@ -130,17 +114,13 @@ def init_payment(payload: Dict[str, Any]):
             INSERT INTO payments (reference, telegram_id, amount, plan, status)
             VALUES (%s, %s, %s, %s, 'pending')
             """,
-            (reference, telegram_id, amount, "PRO"),
+            (reference, str(telegram_id), amount, plan),
         )
         conn.commit()
     finally:
         conn.close()
 
-    return {
-        "authorization_url": data.get("authorization_url"),
-        "reference": reference,
-    }
-
+    return resp.json().get("data", {})
 
 # -------------------------------------------------
 # PAYSTACK WEBHOOK (Handles charge.success)
