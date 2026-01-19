@@ -1,3 +1,5 @@
+# backend/app/routes/telegram_webhook.py
+
 import os
 import logging
 from fastapi import APIRouter, Request
@@ -29,36 +31,30 @@ telegram_app: Application = (
 )
 
 # -------------------------------------------------
-# IMPORT HANDLERS (NO backend PREFIXES!)
+# IMPORT HANDLERS
 # -------------------------------------------------
 from bot.handlers.start import start_message
 from bot.handlers.pricing import pricing_calc
 from bot.handlers.deal import deal_script, deal_step_handler
 from bot.handlers.subscribe import subscribe_command, pay_command
 from bot.handlers.status import status
-from bot.handlers.text_router import text_router
+from bot.handlers.text_router import text_router, callback_router
 from bot.handlers.callbacks_platform import platform_selected
 from bot.callbacks_niche import niche_selected
 from bot.handlers.elite_package import elite_package_start, elite_package_step
 
 
 # -------------------------------------------------
-# REGISTER CALLBACK HANDLERS
+# CALLBACK HANDLERS (ORDER MATTERS)
 # -------------------------------------------------
-telegram_app.add_handler(
-    CallbackQueryHandler(platform_selected, pattern=r"^platform_")
-)
-telegram_app.add_handler(
-    CallbackQueryHandler(niche_selected, pattern=r"^niche_")
-)
-
-telegram_app.add_handler(
-    CallbackQueryHandler(elite_package_start, pattern=r"^elite_package")
-)
+telegram_app.add_handler(CallbackQueryHandler(platform_selected, pattern=r"^platform_"))
+telegram_app.add_handler(CallbackQueryHandler(niche_selected, pattern=r"^niche_"))
+telegram_app.add_handler(CallbackQueryHandler(elite_package_start, pattern=r"^elite_package"))
+telegram_app.add_handler(CallbackQueryHandler(callback_router))   # <--- GLOBAL CALLBACK ROUTER
 
 
 # -------------------------------------------------
-# REGISTER BOT COMMANDS
+# COMMAND HANDLERS
 # -------------------------------------------------
 telegram_app.add_handler(CommandHandler("start", start_message))
 telegram_app.add_handler(CommandHandler("upgrade", subscribe_command))
@@ -66,12 +62,12 @@ telegram_app.add_handler(CommandHandler("pay", pay_command))
 telegram_app.add_handler(CommandHandler("deal", deal_script))
 telegram_app.add_handler(CommandHandler("status", status))
 
+
 # -------------------------------------------------
-# REGISTER TEXT ROUTER (NON-COMMAND TEXT)
+# TEXT ROUTER (NON-COMMAND TEXT)
 # -------------------------------------------------
-telegram_app.add_handler(
-    MessageHandler(filters.TEXT & ~filters.COMMAND, text_router)
-)
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_router))
+
 
 # -------------------------------------------------
 # FASTAPI ROUTER
@@ -79,7 +75,7 @@ telegram_app.add_handler(
 router = APIRouter(prefix="/telegram")
 
 # -------------------------------------------------
-# WEBHOOK ENDPOINT (REQUIRED BY TELEGRAM)
+# TELEGRAM WEBHOOK ENDPOINT
 # -------------------------------------------------
 @router.post("/webhook")
 async def telegram_webhook(request: Request):
@@ -92,6 +88,6 @@ async def telegram_webhook(request: Request):
         update = Update.de_json(payload, telegram_app.bot)
         await telegram_app.process_update(update)
     except Exception as e:
-        logger.error("❌ Error processing Telegram update: %s", e)
+        logger.error(f"❌ Error processing Telegram update: {e}")
 
     return {"ok": True}

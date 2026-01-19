@@ -1,3 +1,7 @@
+# backend/bot/handlers/subscribe.py
+
+from __future__ import annotations
+
 import logging
 import os
 import httpx
@@ -7,27 +11,29 @@ from typing import Optional
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 
+from app.services.pro_service import is_user_pro
+
 logger = logging.getLogger(__name__)
 
 # -------------------------------------------------
 # CONFIG
 # -------------------------------------------------
-PRO_AMOUNT_KOBO = 1_000_000   # ₦10,000 one-time
-ELITE_BASE_FEE_KOBO = 2_500_000  # ₦25,000 per package (editable)
+PRO_AMOUNT_KOBO = 1_000_000          # ₦10,000 one-time
+ELITE_BASE_FEE_KOBO = 2_500_000      # ₦25,000 per package
 
 PUBLIC_BACKEND_URL = "https://creator-monetization.onrender.com"
-BASE_URL = os.getenv("BASE_URL")
+BASE_URL = os.getenv("BASE_URL")     # optional Render override
+
 
 def get_backend_url() -> str:
     """
-    Final production-only backend resolution:
-    1) BASE_URL if provided via Render env
-    2) Fallback to PUBLIC_BACKEND_URL
+    1) BASE_URL if set (Render)
+    2) fallback → PUBLIC_BACKEND_URL
     """
     if BASE_URL and BASE_URL.strip():
         return BASE_URL.strip().rstrip("/")
-    
     return PUBLIC_BACKEND_URL
+
 
 # -------------------------------------------------
 # SAFE REPLY
@@ -48,9 +54,9 @@ async def safe_reply(
     )
 
 
-# -------------------------------------------------
+# =================================================
 # /subscribe COMMAND
-# -------------------------------------------------
+# =================================================
 async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
     if not message:
@@ -77,11 +83,10 @@ async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Positioning Blueprint\n"
         "• Campaign Bundling Strategy\n\n"
         "🏛 *ELITE — ₦25,000 per package*\n"
-        "• Done-For-You Brand Deal Packaging\n"
-        "• Market-ready Deliverables\n"
+        "• Done-For-You Deal Packaging\n"
         "• Baseline Pricing + Usage Rights\n"
         "• Whitelisting/UGC Positioning\n"
-        "• Pitch-ready for Brands/Agencies\n\n"
+        "• Pitch-ready Deliverables\n\n"
         "👇 Select an option to continue:",
         parse_mode="Markdown",
         disable_web_page_preview=True,
@@ -94,9 +99,92 @@ async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# -------------------------------------------------
-# /pay COMMAND (PRO BILLING)
-# -------------------------------------------------
+# =================================================
+# CALLBACK: UPGRADE PRO (PAYSTACK INIT)
+# =================================================
+async def upgrade_pro(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not query or not query.message or not query.message.chat:
+        return
+
+    chat_id = query.message.chat.id
+
+    telegram_id = str(chat_id)
+
+    # Check already PRO
+    if is_user_pro(telegram_id):
+        await context.bot.send_message(
+            chat_id,
+            "🎉 *You're already PRO!*\n\n"
+            "You already have:\n"
+            "✔ Whitelisting\n"
+            "✔ USD Pricing\n"
+            "✔ Export Tools\n"
+            "✔ Negotiation Scripts",
+            parse_mode="Markdown"
+        )
+        return
+
+    backend_url = get_backend_url()
+    init_url = f"{backend_url}/paystack/init"
+
+    payload = {
+        "telegram_id": telegram_id,
+        "plan": "pro"
+    }
+
+    await context.bot.send_message(
+        chat_id,
+        "💳 *Generating secure checkout link...*",
+        parse_mode="Markdown"
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(init_url, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as e:
+        logger.error(f"[UPGRADE_PRO] Init error → {e}")
+        await context.bot.send_message(
+            chat_id,
+            "❌ Payment initialization failed.\nPlease try again shortly."
+        )
+        return
+
+    # Paystack normalized extraction
+    auth_url = (
+        data.get("authorization_url")
+        or data.get("data", {}).get("authorization_url")
+        or None
+    )
+
+    if not auth_url:
+        logger.error(f"[UPGRADE_PRO] Missing authorization_url → {data}")
+        await context.bot.send_message(chat_id, "⚠️ Payment link unavailable. Try again later.")
+        return
+
+    btn = InlineKeyboardButton("💳 Pay with Paystack", url=auth_url)
+
+    await context.bot.send_message(
+        chat_id,
+        "💼 *PRO Upgrade — ₦10,000 One-Time*\n\n"
+        "You are unlocking:\n"
+        "✔ USD Dual Pricing\n"
+        "✔ Whitelisting Rights\n"
+        "✔ Ratecard Export Tools\n"
+        "✔ Brand Deal Scripts\n"
+        "✔ Negotiation Playbooks\n"
+        "✔ Monetization Frameworks\n\n"
+        "Click below to continue:",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([[btn]])
+    )
+
+
+# =================================================
+# /pay COMMAND (LEGACY DIRECT PAY)
+# =================================================
 async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
     user = update.effective_user
@@ -107,10 +195,7 @@ async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     backend_url = get_backend_url()
     payment_init_url = f"{backend_url}/paystack/init"
 
-    await safe_reply(
-        message,
-        "💳 *Initializing secure payment...*"
-    )
+    await safe_reply(message, "💳 *Initializing secure payment...*")
 
     payload = {
         "email": f"user{user.id}@gmail.com",
@@ -141,7 +226,6 @@ async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
 
-    # Normalize Paystack response
     if isinstance(raw, dict):
         if "authorization_url" in raw:
             auth_url = raw["authorization_url"]
@@ -154,14 +238,7 @@ async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not auth_url:
         logger.error(f"[PAY] Unexpected response: {raw}")
-        await safe_reply(
-            message,
-            "⚠️ Unexpected payment response.\nPlease try again later."
-        )
+        await safe_reply(message, "⚠️ Unexpected payment response.\nPlease try again later.")
         return
 
-    await safe_reply(
-        message,
-        f"👉 *Complete payment here:*\n{auth_url}",
-        disable_web_page_preview=False
-    )
+    await safe_reply(message, f"👉 *Complete payment here:*\n{auth_url}", disable_web_page_preview=False)

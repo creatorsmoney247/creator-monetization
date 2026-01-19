@@ -1,4 +1,4 @@
-# bot/handlers/pricing.py
+# backend/bot/handlers/pricing.py
 
 import re
 from typing import cast, Dict, Any, Optional
@@ -12,6 +12,9 @@ from bot.keyboards.platforms import platform_keyboard
 # PARSER HELPERS
 # -------------------------------------------------
 def parse_number(value: str) -> int:
+    """
+    Parses: 50k, 12k, 1.2m, 10000, 500,000
+    """
     value = value.strip().replace(",", "").lower()
     if value.endswith("k"):
         return int(float(value[:-1]) * 1_000)
@@ -21,22 +24,42 @@ def parse_number(value: str) -> int:
 
 
 def parse_engagement(er_raw: str) -> float:
-    """Parses engagement rate ensuring it is between 0 and 1."""
-    er = float(er_raw)
-    if not (0 < er <= 1):
+    """
+    Converts engagement into a proper decimal rate (0 < x <= 1)
+    Handles:
+        - 0.08  => 0.08
+        - 8%    => 0.08
+        - 8     => 0.08
+        - 0.8%  => 0.008
+    """
+    er_str = er_raw.strip().replace("%", "")
+
+    try:
+        er = float(er_str)
+    except:
         raise ValueError("Invalid engagement")
+
+    # If user typed `8` meaning 8%
+    if er > 1:
+        er = er / 100.0
+
+    # If user typed `0.8%` → 0.008
+    if 0 < er <= 100 and "%" in er_raw:
+        er = er / 100.0
+
+    if not (0 < er <= 1):
+        raise ValueError("Engagement must be between 0 and 1")
+
     return er
 
 
 # -------------------------------------------------
-# TEXT → STATS PARSER
+# MAIN TEXT → STATS PARSER
 # -------------------------------------------------
 async def pricing_calc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Parses the raw user text into stats, stores them,
-    then hands off to platform selection → niche → hybrid engine.
-
-    IMPORTANT: This function MUST NOT generate pricing itself.
+    Parses raw user text into stats and stores them for the hybrid pricing pipeline.
+    After parsing, the bot asks for PLATFORM selection.
     """
 
     message = update.effective_message
@@ -50,23 +73,27 @@ async def pricing_calc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     avg_views: Optional[int] = None
     engagement: Optional[float] = None
 
-    # ---- Parsing Logic ----
     try:
+        # -------------------------
+        # Case: followers only
+        # Ex: "50k"
+        # -------------------------
         if len(parts) == 1:
-            # followers only
             followers = parse_number(parts[0])
 
+        # -------------------------
+        # Case: views + engagement
+        # Ex: "12000 0.08"
+        # -------------------------
         elif len(parts) == 2:
-            # interpret as views + engagement
-            try:
-                engagement = parse_engagement(parts[1])
-                avg_views = parse_number(parts[0])
-            except ValueError:
-                await _invalid_format(message)
-                return
+            avg_views = parse_number(parts[0])
+            engagement = parse_engagement(parts[1])
 
+        # -------------------------
+        # Case: followers + views + engagement
+        # Ex: "50k 12000 0.08"
+        # -------------------------
         elif len(parts) == 3:
-            # full stats
             followers = parse_number(parts[0])
             avg_views = parse_number(parts[1])
             engagement = parse_engagement(parts[2])
@@ -79,25 +106,25 @@ async def pricing_calc(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _invalid_format(message)
         return
 
-    # ---- Save parsed stats ----
+    # ---- Save parsed stats persistently ----
     ud = cast(Dict[str, Any], context.user_data)
-    ud["stats"] = {
+    ud.setdefault("stats", {})
+    ud["stats"].update({
         "followers": followers,
         "avg_views": avg_views,
         "engagement": engagement,
-    }
+    })
 
-    # ---- IMPORTANT ----
-    # Do NOT generate pricing here. Hand off to hybrid pipeline.
+    # ---- Ask for platform next ----
     await message.reply_text(
-        "📱 Which *platform* are you pricing for? (Instagram, TikTok, YouTube, etc.)",
+        "📱 Which *platform* are you pricing for?",
         reply_markup=platform_keyboard(),
         parse_mode="Markdown"
     )
 
 
 # -------------------------------------------------
-# STANDARD INVALID FORMAT RESPONSE
+# INVALID FORMAT RESPONSE
 # -------------------------------------------------
 async def _invalid_format(message):
     await message.reply_text(
@@ -109,6 +136,6 @@ async def _invalid_format(message):
         "*Examples:*\n"
         "`50k`\n"
         "`12000 0.08`\n"
-        "`50k 12000 0.08`",
+        "`50k 12000 0.08`\n",
         parse_mode="Markdown",
     )
