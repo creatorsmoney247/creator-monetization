@@ -36,7 +36,7 @@ telegram_app: Application = (
 from bot.handlers.start import start_message
 from bot.handlers.pricing import pricing_calc
 from bot.handlers.deal import deal_script, deal_step_handler
-from bot.handlers.subscribe import subscribe_command, pay_command
+from bot.handlers.subscribe import subscribe_command, pay_command, upgrade_pro
 from bot.handlers.status import status
 from bot.handlers.text_router import text_router, callback_router
 from bot.handlers.callbacks_platform import platform_selected
@@ -50,7 +50,9 @@ from bot.handlers.elite_package import elite_package_start, elite_package_step
 telegram_app.add_handler(CallbackQueryHandler(platform_selected, pattern=r"^platform_"))
 telegram_app.add_handler(CallbackQueryHandler(niche_selected, pattern=r"^niche_"))
 telegram_app.add_handler(CallbackQueryHandler(elite_package_start, pattern=r"^elite_package"))
-telegram_app.add_handler(CallbackQueryHandler(callback_router))   # <--- GLOBAL CALLBACK ROUTER
+
+# NEW: global callback router for PRO upgrades
+telegram_app.add_handler(CallbackQueryHandler(callback_router))
 
 
 # -------------------------------------------------
