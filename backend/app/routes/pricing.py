@@ -5,9 +5,7 @@ from typing import Optional
 from app.services.pro_service import is_user_pro
 from app.services.hybrid_pricing_engine import hybrid_pricing_engine
 
-
 router = APIRouter(prefix="/pricing", tags=["Pricing"])
-
 
 class PricingPayload(BaseModel):
     telegram_id: str
@@ -17,13 +15,8 @@ class PricingPayload(BaseModel):
     platform: str
     niche: str
 
-
 @router.post("/calculate")
 def calculate_pricing(data: PricingPayload):
-    """
-    Legacy endpoint — returns single pricing values for backwards compatibility.
-    """
-
     if not data.platform or not data.niche:
         raise HTTPException(status_code=400, detail="platform and niche are required")
 
@@ -50,10 +43,6 @@ def calculate_pricing(data: PricingPayload):
 
 @router.post("/range")
 def calculate_pricing_range(data: PricingPayload):
-    """
-    New endpoint — returns MIN–MID–MAX pricing for Telegram bot.
-    """
-
     if not data.platform or not data.niche:
         raise HTTPException(status_code=400, detail="platform and niche are required")
 
@@ -69,7 +58,7 @@ def calculate_pricing_range(data: PricingPayload):
         platform=data.platform,
         niche=data.niche,
         is_pro=pro_user,
-        mode="range"  # <---- critical
+        mode="range"
     )
 
     if result.get("error"):
