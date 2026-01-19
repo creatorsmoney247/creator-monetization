@@ -1,5 +1,3 @@
-# backend/app/routes/pricing.py
-
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
@@ -23,35 +21,58 @@ class PricingPayload(BaseModel):
 @router.post("/calculate")
 def calculate_pricing(data: PricingPayload):
     """
-    Unified Hybrid Pricing Endpoint
-    - Supports followers-only
-    - Supports views-only
-    - Supports full stats
+    Legacy endpoint — returns single pricing values for backwards compatibility.
     """
 
-    # PLATFORM + NICHE REQUIRED
     if not data.platform or not data.niche:
         raise HTTPException(status_code=400, detail="platform and niche are required")
 
-    # CHECK PRO STATUS FROM DB
     try:
         pro_user = is_user_pro(data.telegram_id)
     except Exception:
         pro_user = False
 
-    # RUN HYBRID ENGINE
     result = hybrid_pricing_engine(
         followers=data.followers,
         avg_views=data.avg_views,
         engagement=data.engagement_rate,
         platform=data.platform,
         niche=data.niche,
-        is_pro=pro_user
+        is_pro=pro_user,
+        mode="single"
     )
 
-    # HANDLE INSUFFICIENT DATA
     if result.get("error"):
         raise HTTPException(status_code=400, detail="insufficient_data")
 
-    # RETURN STRUCTURED JSON
+    return result
+
+
+@router.post("/range")
+def calculate_pricing_range(data: PricingPayload):
+    """
+    New endpoint — returns MIN–MID–MAX pricing for Telegram bot.
+    """
+
+    if not data.platform or not data.niche:
+        raise HTTPException(status_code=400, detail="platform and niche are required")
+
+    try:
+        pro_user = is_user_pro(data.telegram_id)
+    except Exception:
+        pro_user = False
+
+    result = hybrid_pricing_engine(
+        followers=data.followers,
+        avg_views=data.avg_views,
+        engagement=data.engagement_rate,
+        platform=data.platform,
+        niche=data.niche,
+        is_pro=pro_user,
+        mode="range"  # <---- critical
+    )
+
+    if result.get("error"):
+        return result
+
     return result

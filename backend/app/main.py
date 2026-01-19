@@ -44,8 +44,8 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # optional
 def get_db():
     return psycopg2.connect(
         DATABASE_URL,
-        sslmode="require",      # Supabase requires SSL
-        connect_timeout=5,      # Render protection
+        sslmode="require",
+        connect_timeout=5,
     )
 
 
@@ -103,16 +103,17 @@ async def shutdown_event():
 
 
 # ============================================================
-# ROUTERS
+# ROUTER REGISTRATION (ORDER MATTERS)
 # ============================================================
-# Telegram incoming webhook
-app.include_router(telegram_router)
 
-# Pricing Microservice
+# Pricing Engine (must come before webhook to prevent 404 interception)
 app.include_router(pricing_router)
 
-# Paystack Init API (if using /paystack/init externally)
+# Paystack Init + Checkout API
 app.include_router(paystack_router)
+
+# Telegram Webhook Receiver
+app.include_router(telegram_router)
 
 
 # ============================================================
@@ -134,7 +135,7 @@ def db_test():
 
 
 # ============================================================
-# PAYSTACK WEBHOOK (UPGRADES CREATOR TO PRO)
+# PAYSTACK WEBHOOK (PRO ACTIVATION)
 # ============================================================
 @app.post("/paystack/webhook")
 async def paystack_webhook(request: Request):
@@ -155,7 +156,6 @@ async def paystack_webhook(request: Request):
 
     event = json.loads(raw_body)
 
-    # We only care about actual charge successes
     if event.get("event") != "charge.success":
         logger.info("📨 Non-billing webhook received — ignored.")
         return {"status": "ignored"}
@@ -173,13 +173,11 @@ async def paystack_webhook(request: Request):
     try:
         cur = conn.cursor()
 
-        # Update payment status
         cur.execute(
             "UPDATE payments SET status='success', paid_at=CURRENT_TIMESTAMP WHERE reference=%s",
             (reference,),
         )
 
-        # Activate PRO
         cur.execute(
             """
             INSERT INTO creators (telegram_id, is_pro, pro_activated_at, pro_expires_at, whitelisting_enabled)
@@ -197,10 +195,7 @@ async def paystack_webhook(request: Request):
         conn.commit()
     except Exception as e:
         logger.error(f"❌ Webhook DB error → {e}")
-        try:
-            conn.rollback()
-        except:
-            pass
+        conn.rollback()
         raise HTTPException(status_code=500, detail="Internal Error")
     finally:
         conn.close()
