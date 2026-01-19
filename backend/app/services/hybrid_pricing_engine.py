@@ -4,11 +4,23 @@ from typing import Optional, Dict, Any
 # GLOBAL CPM RANGES (USD) — Midpoints used
 # ---------------------------------------------
 PLATFORM_CPM_USD = {
-    "instagram":  (12, 30),   # high value platform
-    "tiktok":     (4, 10),    # lower CPM
-    "youtube":    (18, 45),   # premium CPM
-    "twitter":    (2, 6),     # very low CPM historically (X)
-    "facebook":   (6, 14),    # dependable mid-range CPM
+    "instagram":  (12, 30),
+    "tiktok":     (4, 10),
+    "youtube":    (18, 45),
+    "twitter":    (2, 6),
+    "facebook":   (6, 14),
+}
+
+# ---------------------------------------------
+# PLATFORM FLOOR MULTIPLIERS
+# ---------------------------------------------
+FLOOR_PLATFORM_MULT = {
+    "instagram": 1.0,
+    "tiktok":    0.75,
+    "youtube":   1.35,
+    "twitter":   0.50,
+    "facebook":  0.65,
+    "other":     1.0,
 }
 
 # ---------------------------------------------
@@ -30,31 +42,20 @@ NICHE_MULT = {
 # ---------------------------------------------
 # FOLLOWER FLOOR PRICING (NGN)
 # ---------------------------------------------
-FLOOR_NGN_PER_10K = 120_000  # updated to modern Nigeria creator rates
+FLOOR_NGN_PER_10K = 120_000
 
 # ---------------------------------------------
-# PLATFORM FLOOR MULTIPLIERS (Differentiation)
+# AFRICA MARKET DISCOUNT
 # ---------------------------------------------
-FLOOR_PLATFORM_MULT = {
-    "instagram": 1.0,
-    "tiktok":    0.75,
-    "youtube":   1.35,   # YouTube commands stronger brand budgets
-    "twitter":   0.50,
-    "facebook":  0.65,
-}
+AFRICA_DISCOUNT = 0.55
 
 # ---------------------------------------------
-# AFRICA MARKET DISCOUNT (CPM normalizing)
-# ---------------------------------------------
-AFRICA_DISCOUNT = 0.55  # Africa CPM ~45–60% lower than US/EU
-
-# ---------------------------------------------
-# USAGE MULTIPLIERS (PRO unlocks control)
+# USAGE MULTIPLIERS
 # ---------------------------------------------
 USAGE_MULT = {
-    3: 2.0,   # 3 months
-    6: 3.0,   # 6 months
-    12: 4.0   # 12 months
+    3: 2.0,
+    6: 3.0,
+    12: 4.0,
 }
 
 # ---------------------------------------------
@@ -63,7 +64,19 @@ USAGE_MULT = {
 WHITELIST_MULT = 2.2
 
 # ---------------------------------------------
-# FX RATE (Static for now)
+# PLATFORM SPREAD (for ranges)
+# ---------------------------------------------
+PLATFORM_SPREAD = {
+    "youtube":   0.35,
+    "instagram": 0.30,
+    "tiktok":    0.25,
+    "facebook":  0.25,
+    "twitter":   0.25,
+    "other":     0.25,
+}
+
+# ---------------------------------------------
+# FX RATE
 # ---------------------------------------------
 USD_TO_NGN = 1300
 
@@ -80,68 +93,68 @@ def hybrid_pricing_engine(
     platform = (platform or "").lower()
     niche = (niche or "").lower()
 
-    # ---- 1. CPM Midpoint ----
+    # ---- CPM Midpoint ----
     if platform in PLATFORM_CPM_USD:
         low, high = PLATFORM_CPM_USD[platform]
-        cpm_usd = (low + high) / 2.0   # midpoint
+        cpm_usd = (low + high) / 2.0
     else:
-        cpm_usd = 10  # fallback
+        cpm_usd = 10
 
-    # Apply Africa CPM normalization
     cpm_usd_local = cpm_usd * AFRICA_DISCOUNT
 
-    # ---- 2. Niche Multiplier ----
+    # ---- Niche Multiplier ----
     niche_mult = NICHE_MULT.get(niche, 1.0)
 
-    # ---- 3. Followers Floor (NGN) ----
+    # ---- Followers Floor ----
     floor_ngn = 0
     if followers:
         base_floor = (followers / 10_000) * FLOOR_NGN_PER_10K
         floor_mult = FLOOR_PLATFORM_MULT.get(platform, 1.0)
         floor_ngn = base_floor * floor_mult
 
-    # ---- 4. Views Valuation (USD → NGN) ----
+    # ---- Views Valuation ----
     views_ngn = 0
     if avg_views:
         base_usd = (avg_views / 1000) * cpm_usd_local
-        niche_usd = base_usd * niche_mult
-        views_ngn = niche_usd * USD_TO_NGN
+        views_ngn = (base_usd * niche_mult) * USD_TO_NGN
 
-    # ---- 5. Hybrid Mode ----
+    # ---- Hybrid Mode ----
     if followers and avg_views and engagement:
         mode = "full"
         base_value_ngn = max(views_ngn, floor_ngn)
-
     elif followers and not avg_views:
         mode = "followers_only"
         base_value_ngn = floor_ngn
-
     elif avg_views and not followers:
         mode = "views_only"
         base_value_ngn = views_ngn
-
     else:
         return {"error": "insufficient_data", "mode": "unknown"}
 
-    # ---- 6. Usage Rights (Default 3 months) ----
+    # ---- Usage Rights Default ----
     usage_months = 3
     usage_mult = USAGE_MULT.get(usage_months, 2.0)
-    ngn_with_usage = base_value_ngn * usage_mult
+    ngn_usage = base_value_ngn * usage_mult
 
-    # ---- 7. PRO Whitelisting ----
+    # ---- Range Spread ----
+    spread = PLATFORM_SPREAD.get(platform, 0.25)
+    range_low_ngn = ngn_usage * (1 - spread)
+    range_high_ngn = ngn_usage * (1 + spread)
+
+    # ---- Floor (Minimum Acceptable) ----
+    floor_rate_ngn = ngn_usage * 0.50  # legal-safe definition
+
+    # ---- PRO Whitelisting ----
     if is_pro:
-        ngn_whitelist = ngn_with_usage * WHITELIST_MULT
+        whitelist_ngn = ngn_usage * WHITELIST_MULT
+        usd_whitelist = whitelist_ngn / USD_TO_NGN
     else:
-        ngn_whitelist = None
+        whitelist_ngn = None
+        usd_whitelist = None
 
-    # ---- 8. USD Dual Display ----
-    usd_recommended = ngn_with_usage / USD_TO_NGN
-    usd_whitelist = (ngn_whitelist / USD_TO_NGN) if (is_pro and ngn_whitelist) else None
+    # ---- USD Dual Display for PRO ----
+    usd_recommended = ngn_usage / USD_TO_NGN
 
-    # ---- 9. Minimum Acceptable ----
-    ngn_minimum = ngn_with_usage * 0.50
-
-    # ---- 10. Response ----
     return {
         "mode": mode,
         "platform": platform,
@@ -149,12 +162,12 @@ def hybrid_pricing_engine(
         "followers": followers,
         "avg_views": avg_views,
         "engagement": engagement,
-        "base_value_ngn": int(base_value_ngn),
-        "recommended_ngn": int(ngn_with_usage),
-        "minimum_ngn": int(ngn_minimum),
-        "recommended_usd": round(usd_recommended, 2),
-        "whitelist_ngn": int(ngn_whitelist) if ngn_whitelist else None,
-        "whitelist_usd": round(usd_whitelist, 2) if usd_whitelist else None,
         "usage_months": usage_months,
+        "range_low_ngn": int(range_low_ngn),
+        "range_high_ngn": int(range_high_ngn),
+        "floor_ngn": int(floor_rate_ngn),
+        "recommended_usd": round(usd_recommended, 2),
+        "whitelist_ngn": int(whitelist_ngn) if whitelist_ngn else None,
+        "whitelist_usd": round(usd_whitelist, 2) if usd_whitelist else None,
         "is_pro": is_pro
     }
