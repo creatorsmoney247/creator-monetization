@@ -87,7 +87,8 @@ def hybrid_pricing_engine(
     engagement: Optional[float],
     platform: str,
     niche: str,
-    is_pro: bool
+    is_pro: bool,
+    mode: str = "single"   # <-- NEW ARG
 ) -> Dict[str, Any]:
 
     platform = (platform or "").lower()
@@ -120,13 +121,13 @@ def hybrid_pricing_engine(
 
     # ---- Hybrid Mode ----
     if followers and avg_views and engagement:
-        mode = "full"
+        pricing_mode = "full"
         base_value_ngn = max(views_ngn, floor_ngn)
     elif followers and not avg_views:
-        mode = "followers_only"
+        pricing_mode = "followers_only"
         base_value_ngn = floor_ngn
     elif avg_views and not followers:
-        mode = "views_only"
+        pricing_mode = "views_only"
         base_value_ngn = views_ngn
     else:
         return {"error": "insufficient_data", "mode": "unknown"}
@@ -136,13 +137,13 @@ def hybrid_pricing_engine(
     usage_mult = USAGE_MULT.get(usage_months, 2.0)
     ngn_usage = base_value_ngn * usage_mult
 
-    # ---- Range Spread ----
+    # ---- RANGE SPREAD ----
     spread = PLATFORM_SPREAD.get(platform, 0.25)
     range_low_ngn = ngn_usage * (1 - spread)
     range_high_ngn = ngn_usage * (1 + spread)
 
-    # ---- Floor (Minimum Acceptable) ----
-    floor_rate_ngn = ngn_usage * 0.50  # legal-safe definition
+    # ---- FLOOR (Minimum Acceptable) ----
+    floor_rate_ngn = ngn_usage * 0.50
 
     # ---- PRO Whitelisting ----
     if is_pro:
@@ -152,11 +153,35 @@ def hybrid_pricing_engine(
         whitelist_ngn = None
         usd_whitelist = None
 
-    # ---- USD Dual Display for PRO ----
+    # ---- USD Conversion for PRO ----
     usd_recommended = ngn_usage / USD_TO_NGN
 
+    # ==========================================================
+    # MODE HANDLING (NEW)
+    # ==========================================================
+    if mode == "range":
+        return {
+            "mode": pricing_mode,
+            "platform": platform,
+            "niche": niche,
+            "followers": followers,
+            "avg_views": avg_views,
+            "engagement": engagement,
+            "currency": "NGN",
+            "min": int(range_low_ngn),
+            "mid": int(ngn_usage),
+            "max": int(range_high_ngn),
+            "floor": int(floor_rate_ngn),
+            "usage_months": usage_months,
+            "whitelisting": not is_pro,
+            "is_pro": is_pro
+        }
+
+    # ==========================================================
+    # DEFAULT LEGACY OUTPUT (SINGLE MODE)
+    # ==========================================================
     return {
-        "mode": mode,
+        "mode": pricing_mode,
         "platform": platform,
         "niche": niche,
         "followers": followers,

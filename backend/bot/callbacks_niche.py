@@ -75,7 +75,7 @@ async def niche_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 # =================================================
-# GENERATE PRICING
+# GENERATE PRICING (RANGE MODE)
 # =================================================
 async def generate_pricing(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
     ud = cast(Dict[str, Any], context.user_data)
@@ -95,11 +95,11 @@ async def generate_pricing(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> 
         await context.bot.send_message(chat_id, "⚠️ Missing platform or niche. Start again with /start.")
         return
 
-    # PRO status check
+    # ---- PRO STATUS ----
     is_pro_user = is_user_pro(str(chat_id))
 
     backend_url = get_backend_url()
-    url = f"{backend_url}/pricing/calculate"
+    url = f"{backend_url}/pricing/range"   # <--- RANGE ENDPOINT
 
     payload = {
         "telegram_id": str(chat_id),
@@ -120,13 +120,11 @@ async def generate_pricing(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> 
         await context.bot.send_message(chat_id, f"⚠️ Backend pricing error: {e}")
         return
 
-    mode = result["mode"]
-    rec_ngn = result["recommended_ngn"]
-    min_ngn = result["minimum_ngn"]
-    wl_ngn = result.get("whitelist_ngn")
-    rec_usd = result["recommended_usd"]
-    wl_usd = result.get("whitelist_usd")
-    usage_months = result["usage_months"]
+    mode = result.get("mode", "unknown")
+    min_ngn = result.get("min")
+    mid_ngn = result.get("mid")
+    max_ngn = result.get("max")
+    usage_months = result.get("usage_months", 3)
 
     # ---- MESSAGE BUILD ----
     text = (
@@ -147,28 +145,25 @@ async def generate_pricing(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> 
         text += f"*Avg Views:* {avg_views:,}\n\n"
 
     text += (
-        f"💰 *Recommended Rate:* ₦{rec_ngn:,}\n"
-        f"🟡 *Minimum Acceptable:* ₦{min_ngn:,}\n"
+        f"💰 *Pricing Range (NGN):*\n"
+        f"• *Minimum:* ₦{min_ngn:,}\n"
+        f"• *Midline:* ₦{mid_ngn:,}\n"
+        f"• *Premium:* ₦{max_ngn:,}\n\n"
         f"*Usage Rights:* {usage_months}-Month\n"
     )
 
-    # ---- BUTTON LOGIC ----
+    # ---- BUTTON & WHITELISTING LOGIC ----
+    buttons = []
+
     if not is_pro_user:
         text += (
-            "\n🔒 *Whitelisting Rights:* Locked (PRO only)\n"
-            "✨ Unlock PRO for whitelisting + USD dual pricing."
+            "🔒 *Whitelisting Rights:* Locked (PRO only)\n"
+            "✨ Unlock PRO for usage + whitelisting + export."
         )
-        buttons = [[InlineKeyboardButton("🔐 Unlock PRO", callback_data="upgrade_pro")]]
+        buttons.append([InlineKeyboardButton("🔐 Unlock PRO", callback_data="upgrade_pro")])
     else:
-        if wl_ngn:
-            text += (
-                f"\n💥 *With Whitelisting:* ₦{wl_ngn:,}\n"
-                f"💱 *USD Rate:* ~${rec_usd:,.2f}\n"
-            )
-            if wl_usd:
-                text += f"💱 *USD + Whitelisting:* ~${wl_usd:,.2f}\n"
-
-        buttons = [[InlineKeyboardButton("📁 Export Ratecard", callback_data="export_ratecard")]]
+        text += "💼 *PRO Unlocked:* Whitelisting available\n"
+        buttons.append([InlineKeyboardButton("📁 Export Ratecard", callback_data="export_ratecard")])
 
     await context.bot.send_message(
         chat_id,
