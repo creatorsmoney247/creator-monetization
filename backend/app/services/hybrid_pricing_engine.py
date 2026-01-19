@@ -88,7 +88,7 @@ def hybrid_pricing_engine(
     platform: str,
     niche: str,
     is_pro: bool,
-    mode: str = "single"   # <-- NEW ARG
+    mode: str = "single"
 ) -> Dict[str, Any]:
 
     platform = (platform or "").lower()
@@ -132,32 +132,28 @@ def hybrid_pricing_engine(
     else:
         return {"error": "insufficient_data", "mode": "unknown"}
 
-    # ---- Usage Rights Default ----
+    # ---- Usage Rights ----
     usage_months = 3
     usage_mult = USAGE_MULT.get(usage_months, 2.0)
     ngn_usage = base_value_ngn * usage_mult
 
-    # ---- RANGE SPREAD ----
+    # ---- Range Spread ----
     spread = PLATFORM_SPREAD.get(platform, 0.25)
     range_low_ngn = ngn_usage * (1 - spread)
     range_high_ngn = ngn_usage * (1 + spread)
 
-    # ---- FLOOR (Minimum Acceptable) ----
-    floor_rate_ngn = ngn_usage * 0.50
+    # ---- USD Conversion ----
+    usd_mid = ngn_usage / USD_TO_NGN
+    usd_whitelist = None
 
-    # ---- PRO Whitelisting ----
+    # ---- Whitelisting for PRO ----
+    whitelist_ngn = None
     if is_pro:
         whitelist_ngn = ngn_usage * WHITELIST_MULT
         usd_whitelist = whitelist_ngn / USD_TO_NGN
-    else:
-        whitelist_ngn = None
-        usd_whitelist = None
-
-    # ---- USD Conversion for PRO ----
-    usd_recommended = ngn_usage / USD_TO_NGN
 
     # ==========================================================
-    # MODE HANDLING (NEW)
+    # RANGE MODE OUTPUT (FOR BOT)
     # ==========================================================
     if mode == "range":
         return {
@@ -171,14 +167,16 @@ def hybrid_pricing_engine(
             "min": int(range_low_ngn),
             "mid": int(ngn_usage),
             "max": int(range_high_ngn),
-            "floor": int(floor_rate_ngn),
+            "usd_mid": round(float(usd_mid), 2),
+            "whitelist_ngn": int(whitelist_ngn) if whitelist_ngn else None,
+            "usd_whitelist": round(float(usd_whitelist), 2) if usd_whitelist else None,
             "usage_months": usage_months,
-            "whitelisting": not is_pro,
+            "whitelisting_enabled": is_pro,
             "is_pro": is_pro
         }
 
     # ==========================================================
-    # DEFAULT LEGACY OUTPUT (SINGLE MODE)
+    # DEFAULT LEGACY OUTPUT
     # ==========================================================
     return {
         "mode": pricing_mode,
@@ -190,9 +188,8 @@ def hybrid_pricing_engine(
         "usage_months": usage_months,
         "range_low_ngn": int(range_low_ngn),
         "range_high_ngn": int(range_high_ngn),
-        "floor_ngn": int(floor_rate_ngn),
-        "recommended_usd": round(usd_recommended, 2),
+        "usd_mid": round(float(usd_mid), 2),
         "whitelist_ngn": int(whitelist_ngn) if whitelist_ngn else None,
-        "whitelist_usd": round(usd_whitelist, 2) if usd_whitelist else None,
+        "usd_whitelist": round(float(usd_whitelist), 2) if usd_whitelist else None,
         "is_pro": is_pro
     }
